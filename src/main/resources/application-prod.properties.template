@@ -1,0 +1,40 @@
+# ResortsLite - GCP Production Configuration Template
+# Copy this file to application-prod.properties and configure with actual values
+
+# Server Configuration
+PORT=8080
+
+# Database Configuration (use Cloud SQL)
+DB_URL=jdbc:postgresql://CLOUD_SQL_INSTANCE_IP:5432/resortdb
+DB_USERNAME=resort_app_user
+DB_PASSWORD=${sm://projects/PROJECT_ID/secrets/db-password/versions/latest}
+DB_DRIVER=org.postgresql.Driver
+
+# Redis Configuration (use Memorystore for Redis)
+REDIS_HOST=MEMORYSTORE_REDIS_IP
+REDIS_PORT=6379
+REDIS_PASSWORD=${sm://projects/PROJECT_ID/secrets/redis-password/versions/latest}
+REDIS_SSL=true
+
+# Google Cloud Storage Buckets
+GCS_REPORTS_BUCKET=resort-reports-prod
+GCS_BACKUP_BUCKET=resort-backups-prod
+
+# GCP Project Configuration
+GCP_PROJECT_ID=your-gcp-project-id
+
+# Service Endpoints (use HTTPS with proper DNS)
+PAYMENT_API_URL=https://payment-api.resorts-cloud.com/charge
+INVENTORY_SERVICE_URL=https://inventory-svc.resorts-cloud.com/rooms
+NOTIFICATION_SERVICE_URL=https://notify.resorts-cloud.com/send
+REPORT_DOWNLOAD_URL=https://reports.resorts-cloud.com
+
+# Logging
+LOG_LEVEL=INFO
+APP_LOG_LEVEL=INFO
+
+# Session Configuration
+SESSION_TIMEOUT=1800
+
+# H2 Console (disable in production)
+H2_CONSOLE_ENABLED=false
