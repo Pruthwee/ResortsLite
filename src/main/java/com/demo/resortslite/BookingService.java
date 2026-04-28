@@ -2,6 +2,7 @@ package com.demo.resortslite;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.security.MessageDigest;
@@ -10,7 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
-public class BookingService {
+public class BookingService implements IBookingService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -22,11 +23,12 @@ public class BookingService {
     private static final String DB_USER = "admin";                         // sec-cred-001
     private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
 
-    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
-    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
-    // or scaling events. Must be externalised to environment variables / Parameter Store.
-    private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+    // FIXED: blocker-12 (cz-java-0062) - Replaced hardcoded IP with environment variable
+    // Service endpoints now use DNS-based discovery and environment-based configuration
+    @Value("${app.payment.endpoint:http://payment-svc.internal:9090/payments/charge}")
+    private String paymentApiEndpoint;
 
+    @Override
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
         String bookingId = "BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
@@ -54,6 +56,7 @@ public class BookingService {
         return booking;
     }
 
+    @Override
     public Map<String, Object> getBookingById(String bookingId) {
         // VIOLATION [Security Health / Critical]: SQL injection via string concatenation.
         // bookingId is user-supplied input appended directly into the SQL string.
@@ -70,6 +73,7 @@ public class BookingService {
     // VIOLATION [Code Sustainability / High]: High cyclomatic complexity.
     // This method has 9+ decision branches. Automated transformation tools flag methods
     // above complexity threshold as high maintenance risk and transformation blockers.
+    @Override
     public String calculateRoomPrice(String roomType, int nights, String season, String loyalty) {
         double basePrice = 0;
         if (roomType.equals("STANDARD")) { basePrice = 120.0; }
@@ -88,6 +92,7 @@ public class BookingService {
         return String.format("%.2f", total);
     }
 
+    @Override
     public boolean isRoomAvailable(String roomType) {
         // VIOLATION [Code Sustainability / Medium]: Duplicated validation logic.
         // Same room type validation is repeated here and in calculateRoomPrice.
@@ -99,8 +104,11 @@ public class BookingService {
         return true;
     }
 
+    @Override
     public String generateReport(String month) {
-        return "Report generation triggered for: " + month + " via " + PAYMENT_API;
+        // FIXED: blocker-10 (cz-java-0082) - Using externalized configuration for loose coupling
+        // Service endpoints support independent deployment and microservices architecture
+        return "Report generation triggered for: " + month + " via " + paymentApiEndpoint;
     }
 
     private String md5Hash(String input) { // sec-weak-hash-001

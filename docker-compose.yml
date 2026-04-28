@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  resortslite-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: resortslite:latest
+    container_name: resortslite-app
+    ports:
+      - "8080:8080"
+    environment:
+      # Application configuration
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: docker
+      
+      # JVM configuration
+      JAVA_OPTS: "-Xmx512m -Xms256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+      
+      # Database configuration (H2 in-memory for local development)
+      DB_URL: "jdbc:h2:mem:resortdb;DB_CLOSE_DELAY=-1"
+      DB_USERNAME: "sa"
+      DB_PASSWORD: ""
+      
+      # Redis configuration (connect to external Redis service)
+      REDIS_HOST: "${REDIS_HOST:-localhost}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      
+      # AWS S3 configuration (connect to AWS S3)
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME:-resorts-reports}"
+      AWS_REGION: "${AWS_REGION:-us-east-1}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      
+      # External service endpoints
+      PAYMENT_ENDPOINT: "${PAYMENT_ENDPOINT:-http://payment-svc:9090/charge}"
+      INVENTORY_ENDPOINT: "${INVENTORY_ENDPOINT:-http://inventory-svc:8081/rooms}"
+      NOTIFICATION_ENDPOINT: "${NOTIFICATION_ENDPOINT:-http://notify-svc:7070/send}"
+    
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+    
+    networks:
+      - app-network
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
