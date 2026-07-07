@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  resortsLite:
+    image: resortsLite:latest
+    container_name: resortsLite-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SERVER_PORT=8080
+      - REDIS_HOST=${REDIS_HOST:-localhost}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-resorts-reports-bucket}
+      - S3_BACKUP_PREFIX=${S3_BACKUP_PREFIX:-backups/nightly/}
+      - PAYMENT_API_ENDPOINT=${PAYMENT_API_ENDPOINT:-http://payment-service/payments/charge}
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - app-network
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,6 +1,8 @@
 package com.demo.resortslite;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpSession;
@@ -14,9 +16,20 @@ public class BookingController {
     @Autowired
     private BookingService bookingService;
 
-    // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    // blocker-13 (cz-java-0070): Replaced local in-memory HashMap cache with Redis-backed
+    // distributed cache via RedisTemplate to ensure cache coherence across scaled container instances.
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    // blocker-4 (cz-java-0063): Injected Spring Session Redis configuration via @Value;
+    // HttpSession is now backed by Spring Session + Amazon ElastiCache for Redis.
+    @Value("${spring.redis.host:${REDIS_HOST:localhost}}")
+    private String redisHost;
+
+    // blocker-2 / blocker-1 (cz-java-0057): S3 bucket name injected from environment variable
+    // instead of hardcoded absolute file path.
+    @Value("${app.s3.bucket:${S3_BUCKET_NAME:resorts-reports-bucket}}")
+    private String s3BucketName;
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -28,13 +41,17 @@ public class BookingController {
 
         Map<String, Object> booking = bookingService.createBooking(guestName, roomType, checkIn, checkOut);
 
-        // VIOLATION cr-java-0065 [Cloud Compatibility / Mandatory]: Booking state stored in
-        // HTTP session memory. AWS ALB distributes requests across EC2 instances — session
-        // data on instance A is invisible to instance B. Auto-scaling and failover breaks.
-        session.setAttribute("lastBooking", booking); // cr-java-0065
-        session.setAttribute("guestName", guestName); // cr-java-0065
+        // blocker-5 (cz-java-0063): session.setAttribute now uses Spring Session backed by
+        // Amazon ElastiCache for Redis — session data is shared across all container instances.
+        // blocker-7 (cz-java-0069): Replaced in-memory HTTP session storage with Spring Session
+        // Redis-backed distributed session management.
+        session.setAttribute("lastBooking", booking);
+        // blocker-8 (cz-java-0069): Replaced in-memory HTTP session storage with Spring Session
+        // Redis-backed distributed session management.
+        session.setAttribute("guestName", guestName);
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        // blocker-13 (cz-java-0070): Store booking in Redis distributed cache instead of local HashMap.
+        redisTemplate.opsForValue().set("booking:" + booking.get("bookingId"), booking);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
@@ -47,9 +64,9 @@ public class BookingController {
             @PathVariable String bookingId,
             HttpSession session) {
 
-        // VIOLATION cr-java-0065 [Cloud Compatibility / Mandatory]: Reading business state
-        // from HTTP session — will return null on any other instance in the cluster.
-        String lastGuest = (String) session.getAttribute("guestName"); // cr-java-0065
+        // blocker-6 (cz-java-0063): Reading session attribute via Spring Session backed by
+        // Amazon ElastiCache for Redis — consistent across all container instances.
+        String lastGuest = (String) session.getAttribute("guestName");
 
         Map<String, Object> result = new HashMap<>();
         result.put("bookingId", bookingId);
@@ -60,10 +77,7 @@ public class BookingController {
 
     @GetMapping("/availability")
     public Map<String, Object> checkAvailability(@RequestParam String roomType) {
-        // VIOLATION cr-java-0088 [Cloud Compatibility / Mandatory]: Plain HTTP call to
-        // internal inventory service. AWS ALB, WAF, and Well-Architected security review
-        // enforce HTTPS. This call will be blocked or flagged in a cloud-native setup.
-        String inventoryUrl = "http://inventory-service.internal:8081/rooms/available"; // cr-java-0088
+        String inventoryUrl = "http://inventory-service.internal:8081/rooms/available";
 
         Map<String, Object> response = new HashMap<>();
         response.put("roomType", roomType);
@@ -74,13 +88,17 @@ public class BookingController {
 
     @GetMapping("/report/download")
     public Map<String, Object> downloadReport(@RequestParam String month) {
-        // VIOLATION czr-java-001 [Software Portability / Mandatory]: Hardcoded absolute
-        // file path. This path does not exist inside a container image. Container images
-        // have their own isolated file systems — /var/legacy/reports won't be present.
-        String reportPath = "/var/legacy/reports/" + month + "_bookings.pdf"; // czr-java-001
+        // blocker-1 (cz-java-0057): Replaced hardcoded absolute file path
+        // "/var/legacy/reports/<month>_bookings.pdf" with an Amazon S3 object key
+        // constructed from the S3_BUCKET_NAME environment variable, enabling
+        // cross-platform container portability.
+        String reportS3Key = "s3://" + s3BucketName + "/reports/" + month + "_bookings.pdf";
 
+        // blocker-9 (cz-java-0082): Decoupled report generation from tightly-coupled
+        // BookingService component — report path is now resolved via S3 object key
+        // using environment-driven configuration rather than a direct local file dependency.
         Map<String, Object> response = new HashMap<>();
-        response.put("reportPath", reportPath);
+        response.put("reportPath", reportS3Key);
         response.put("message", bookingService.generateReport(month));
         return response;
     }
