@@ -19,6 +19,7 @@
 
     <properties>
         <java.version>1.8</java.version>
+        <aws.sdk.version>2.20.0</aws.sdk.version>
     </properties>
 
     <dependencies>
@@ -30,22 +31,29 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <!-- SECURITY VIOLATION: log4j 2.14.1 has critical CVE-2021-44228 (Log4Shell) -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
-            <version>2.14.1</version>
-        </dependency>
-        <!-- SECURITY VIOLATION: commons-collections 3.2.1 has CVE-2015-6420 (RCE) -->
-        <dependency>
-            <groupId>commons-collections</groupId>
-            <artifactId>commons-collections</artifactId>
-            <version>3.2.1</version>
+            <version>2.17.1</version>
         </dependency>
         <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+            <version>${aws.sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>cognito-idp</artifactId>
+            <version>${aws.sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${aws.sdk.version}</version>
         </dependency>
     </dependencies>
 

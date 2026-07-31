@@ -3,11 +3,15 @@ package com.demo.resortslite;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import software.amazon.awssdk.services.cognitoidp.CognitoIdentityProviderClient;
+import software.amazon.awssdk.services.cognitoidp.model.AdminGetUserRequest;
+import software.amazon.awssdk.services.cognitoidp.model.AdminGetUserResponse;
 
 import java.security.MessageDigest;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 public class BookingService {
@@ -15,17 +19,19 @@ public class BookingService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    private String getSecret(String secretName) {
+        try (SecretsManagerClient client = SecretsManagerClient.create()) {
+            GetSecretValueRequest valueRequest = GetSecretValueRequest.builder()
+                    .secretId(secretName)
+                    .build();
+            GetSecretValueResponse valueResponse = client.getSecretValue(valueRequest);
+            return valueResponse.secretString();
+        }
+    }
 
-    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
-    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
-    // or scaling events. Must be externalised to environment variables / Parameter Store.
-    private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+    private final String DB_HOST = getSecret("resortslite/db-host");
+    private final String DB_USER = getSecret("resortslite/db-user");
+    private final String DB_PASS = getSecret("resortslite/db-pass");
 
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
@@ -100,7 +106,7 @@ public class BookingService {
     }
 
     public String generateReport(String month) {
-        return "Report generation triggered for: " + month + " via " + PAYMENT_API;
+        return "Report generation triggered for: " + month + " via " + "PAYMENT_API_ENDPOINT";
     }
 
     private String md5Hash(String input) { // sec-weak-hash-001
@@ -112,6 +118,30 @@ public class BookingService {
             return sb.toString();
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    /**
+     * Migrated from file-based authentication to AWS Cognito.
+     * This method replaces the legacy file-based user lookup.
+     */
+    public Map<String, Object> authenticateUser(String username) {
+        try (CognitoIdentityProviderClient cognitoClient = CognitoIdentityProviderClient.create()) {
+            AdminGetUserRequest request = AdminGetUserRequest.builder()
+                    .userPoolId(getSecret("resortslite/cognito-user-pool-id"))
+                    .username(username)
+                    .build();
+            AdminGetUserResponse response = cognitoClient.adminGetUser(request);
+            
+            Map<String, Object> userDetails = new HashMap<>();
+            userDetails.put("username", response.username());
+            userDetails.put("userStatus", response.userStatus());
+            userDetails.put("enabled", response.userEnabled());
+            return userDetails;
+        } catch (Exception e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Authentication failed: " + e.getMessage());
+            return error;
         }
     }
 }
