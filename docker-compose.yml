@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  restorelitecontainer:
+    image: restorelitecontainer:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8"
+      PAYMENT_API_URL: "${PAYMENT_API_URL:-http://payment-service:9090/payments/charge}"
+      INVENTORY_API_URL: "${INVENTORY_API_URL:-https://inventory-service.internal:8081/rooms/available}"
+      INVENTORY_SERVICE_PORT: "${INVENTORY_SERVICE_PORT:-8081}"
+      REPORT_BASE_PATH: "${REPORT_BASE_PATH:-/tmp/reports}"
+      BACKUP_PATH: "${BACKUP_PATH:-/tmp/backups}"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

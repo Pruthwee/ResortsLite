@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restorelitecontainer
+  namespace: restorelitecontainer
+  labels:
+    app: restorelitecontainer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: restorelitecontainer
+  template:
+    metadata:
+      labels:
+        app: restorelitecontainer
+    spec:
+      containers:
+        - name: restorelitecontainer
+          image: "{{IMAGE_URI}}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: docker
+            - name: SERVER_PORT
+              value: "8080"
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m -XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Dfile.encoding=UTF-8"
+            - name: PAYMENT_API_URL
+              value: "{{PAYMENT_API_URL}}"
+            - name: INVENTORY_API_URL
+              value: "{{INVENTORY_API_URL}}"
+            - name: INVENTORY_SERVICE_PORT
+              value: "{{INVENTORY_SERVICE_PORT}}"
+            - name: REPORT_BASE_PATH
+              value: "{{REPORT_BASE_PATH}}"
+            - name: BACKUP_PATH
+              value: "{{BACKUP_PATH}}"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
