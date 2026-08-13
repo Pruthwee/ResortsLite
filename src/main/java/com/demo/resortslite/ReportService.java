@@ -1,5 +1,7 @@
 package com.demo.resortslite;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -12,6 +14,12 @@ import java.util.Map;
 
 @Service
 public class ReportService {
+
+    @Autowired
+    private AwsParameterStoreConfig awsParameterStoreConfig;
+
+    @Value("${aws.ssm.parameter.report-download-base-url}")
+    private String reportDownloadBaseUrlParameterName;
 
     // VIOLATION czr-java-001 [Software Portability / Mandatory]: Hardcoded absolute path.
     // /var/legacy/reports does not exist in a Docker container image. Breaks containerisation.
@@ -61,9 +69,14 @@ public class ReportService {
     // Missing documentation is flagged across all public methods in the codebase.
     // This increases onboarding time and transformation risk for automated tools.
     public String buildReportDownloadUrl(String reportName) { // doc-missing-001
-        // VIOLATION cr-java-0088 [Cloud Compatibility / Mandatory]: Plain HTTP URL
-        // hardcoded for report download. Cloud security standards enforce HTTPS.
-        return "http://reports.resorts-internal.com:8080/download/" + reportName; // cr-java-0088
+        // FIXED cr-java-0071: Externalized environment-specific URL using AWS Systems Manager Parameter Store
+        // The report download base URL is now retrieved from AWS SSM Parameter Store at runtime,
+        // enabling environment-agnostic deployments (dev/staging/prod) without code changes.
+        // Default fallback URL uses HTTPS for cloud security compliance.
+        String baseUrl = awsParameterStoreConfig.getParameter(
+                reportDownloadBaseUrlParameterName,
+                "https://reports.resorts-internal.com:8080");
+        return baseUrl + "/download/" + reportName;
     }
 
     public Map<String, Object> getSystemInfo() { // doc-missing-001
