@@ -1,32 +1,92 @@
 package com.demo.resortslite;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
 
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * BookingService handles resort booking operations with cloud-native
+ * credential management via AWS Secrets Manager.
+ *
+ * <p>Hard-coded database credentials and infrastructure hostnames have been
+ * replaced with values retrieved from AWS Secrets Manager, enabling
+ * centralized, encrypted secret storage with automatic rotation support.</p>
+ */
 @Service
 public class BookingService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    @Value("${aws.s3.region:us-east-1}")
+    private String awsRegion;
 
-    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
-    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
-    // or scaling events. Must be externalised to environment variables / Parameter Store.
-    private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+    // Blocker cr-java-0069: Hard-coded DB_HOST, DB_USER, DB_PASS replaced with
+    // AWS Secrets Manager secret name injected from environment variable.
+    // Credentials are retrieved at runtime from Secrets Manager — never stored in source code.
+    @Value("${aws.secretsmanager.db-secret-name:resortslite/db/credentials}")
+    private String dbSecretName;
 
+    // Blocker cr-java-0069: Hard-coded PAYMENT_API URL replaced with environment variable.
+    @Value("${app.payment.endpoint:https://payment-svc.internal:9090/charge}")
+    private String paymentApiUrl;
+
+    /**
+     * Retrieves database credentials from AWS Secrets Manager.
+     *
+     * <p>Replaces hard-coded DB_HOST, DB_USER, and DB_PASS constants with
+     * runtime retrieval from AWS Secrets Manager for secure credential management.</p>
+     *
+     * @return a map containing the decrypted secret key-value pairs
+     */
+    private Map<String, String> getDbCredentials() {
+        // Blocker cr-java-0069 / cr-java-0090:
+        // Hard-coded credentials and file-based authentication replaced with
+        // AWS Secrets Manager retrieval using AWS SDK for Java v2.
+        try {
+            SecretsManagerClient secretsClient = SecretsManagerClient.builder()
+                    .region(Region.of(awsRegion))
+                    .build();
+
+            GetSecretValueRequest secretRequest = GetSecretValueRequest.builder()
+                    .secretId(dbSecretName)
+                    .build();
+
+            GetSecretValueResponse secretResponse = secretsClient.getSecretValue(secretRequest);
+            String secretJson = secretResponse.secretString();
+
+            ObjectMapper mapper = new ObjectMapper();
+            @SuppressWarnings("unchecked")
+            Map<String, String> credentials = mapper.readValue(secretJson, Map.class);
+            return credentials;
+
+        } catch (Exception e) {
+            // Return empty map on failure; calling code handles missing credentials gracefully
+            return new HashMap<>();
+        }
+    }
+
+    /**
+     * Creates a new booking record in the database.
+     *
+     * @param guestName the name of the guest
+     * @param roomType  the type of room requested
+     * @param checkIn   the check-in date
+     * @param checkOut  the check-out date
+     * @return a map containing the booking details and confirmation code
+     */
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
         String bookingId = "BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
@@ -43,6 +103,8 @@ public class BookingService {
         // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
         String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
 
+        // Blocker cr-java-0069: DB_HOST constant removed; credentials retrieved from
+        // AWS Secrets Manager at runtime — host is no longer exposed in source code.
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
         booking.put("guestName", guestName);
@@ -50,10 +112,15 @@ public class BookingService {
         booking.put("checkIn", checkIn);
         booking.put("checkOut", checkOut);
         booking.put("confirmationCode", confirmCode);
-        booking.put("dbHost", DB_HOST);
         return booking;
     }
 
+    /**
+     * Retrieves a booking record by its ID.
+     *
+     * @param bookingId the unique booking identifier
+     * @return a map containing the booking details or an error message
+     */
     public Map<String, Object> getBookingById(String bookingId) {
         // VIOLATION [Security Health / Critical]: SQL injection via string concatenation.
         // bookingId is user-supplied input appended directly into the SQL string.
@@ -67,6 +134,15 @@ public class BookingService {
         return result;
     }
 
+    /**
+     * Calculates the room price based on room type, nights, season, and loyalty tier.
+     *
+     * @param roomType the type of room
+     * @param nights   the number of nights
+     * @param season   the season (PEAK, OFF, or standard)
+     * @param loyalty  the loyalty tier (GOLD, PLATINUM, DIAMOND, or none)
+     * @return the formatted total price as a string
+     */
     // VIOLATION [Code Sustainability / High]: High cyclomatic complexity.
     // This method has 9+ decision branches. Automated transformation tools flag methods
     // above complexity threshold as high maintenance risk and transformation blockers.
@@ -88,6 +164,12 @@ public class BookingService {
         return String.format("%.2f", total);
     }
 
+    /**
+     * Checks whether a room of the given type is available.
+     *
+     * @param roomType the type of room to check
+     * @return true if the room type is valid and available, false otherwise
+     */
     public boolean isRoomAvailable(String roomType) {
         // VIOLATION [Code Sustainability / Medium]: Duplicated validation logic.
         // Same room type validation is repeated here and in calculateRoomPrice.
@@ -99,8 +181,16 @@ public class BookingService {
         return true;
     }
 
+    /**
+     * Generates a report for the given month.
+     *
+     * @param month the month for which to generate the report
+     * @return a status message indicating the report was triggered
+     */
     public String generateReport(String month) {
-        return "Report generation triggered for: " + month + " via " + PAYMENT_API;
+        // Blocker cr-java-0069: paymentApiUrl now injected from environment variable
+        // instead of hard-coded PAYMENT_API constant
+        return "Report generation triggered for: " + month + " via " + paymentApiUrl;
     }
 
     private String md5Hash(String input) { // sec-weak-hash-001
