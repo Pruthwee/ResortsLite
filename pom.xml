@@ -19,7 +19,20 @@
 
     <properties>
         <java.version>1.8</java.version>
+        <aws.sdk.version>2.25.40</aws.sdk.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -46,6 +59,57 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <!-- AWS SDK v2: S3 client — replaces hard-coded file-system paths (cr-java-0061) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <!-- AWS SDK v2: URL connection client (default HTTP client for SDK v2) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+        </dependency>
+        <!-- AWS SDK v2: Secrets Manager — replaces hard-coded DB credentials (cr-java-0069) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+        </dependency>
+        <!--
+            cr-java-0090 fix: Amazon Cognito Identity Provider
+            Replaces file-based authentication / local user stores with Amazon Cognito
+            User Pool for centralised, encrypted, and auditable user identity management.
+            Used by BookingService.verifyGuestIdentity() and getGuestAttribute().
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>cognitoidentityprovider</artifactId>
+        </dependency>
+        <!-- Jackson for parsing Secrets Manager JSON payloads -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!--
+            cr-java-0065 fix: Spring Session Data Redis + Spring Data Redis (Lettuce)
+            Replaces in-memory HTTP session storage with Amazon ElastiCache for Redis.
+            Spring Session transparently intercepts all HttpSession.setAttribute /
+            getAttribute calls and persists session data to the shared Redis cluster,
+            enabling stateless, horizontally-scalable application instances behind
+            an AWS Application Load Balancer without sticky sessions.
+        -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- Lettuce Redis client — recommended for Amazon ElastiCache (TLS + cluster mode) -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
         </dependency>
     </dependencies>
 
