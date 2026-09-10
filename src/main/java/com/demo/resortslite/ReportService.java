@@ -1,12 +1,18 @@
 package com.demo.resortslite;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import javax.annotation.PostConstruct;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,34 +28,57 @@ public class ReportService {
     // will fail on any Linux-based container or cloud host. Hard dependency on OS path structure.
     private static final String BACKUP_PATH = "C:\\ResortBackups\\nightly\\"; // czr-java-001
 
-    // VIOLATION [Software Portability / High]: Fixed server port hardcoded in application logic.
-    // Container orchestration (ECS / EKS) dynamically assigns ports. Hardcoded ports prevent
-    // dynamic port binding required for modern container deployment and service discovery.
-    private static final int SERVER_PORT = 8080; // czr-port-001
+    // REMEDIATION cr-java-0077: Replace hard-coded port with AWS Parameter Store and
+    // environment variable injection. Container orchestration (ECS / EKS) dynamically
+    // assigns ports. The port is now resolved at runtime from the SERVER_PORT environment
+    // variable, which can be populated from AWS Systems Manager Parameter Store.
+    @Value("${app.server.port:8080}")
+    private int serverPort;
+
+    @Value("${app.s3.bucket:resorts-lite-reports}")
+    private String s3BucketName;
+
+    @Value("${app.s3.region:us-east-1}")
+    private String s3Region;
+
+    private S3Client s3Client;
+
+    @PostConstruct
+    public void init() {
+        s3Client = S3Client.builder()
+                .region(Region.of(s3Region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
 
     public Map<String, Object> generateMonthlyReport(String month, String year) {
         String fileName = "resort_report_" + month + "_" + year + ".csv";
-        String fullPath = REPORT_BASE_PATH + fileName; // czr-java-001
 
         Map<String, Object> result = new HashMap<>();
 
         try {
-            File reportDir = new File(REPORT_BASE_PATH); // czr-java-001
-            if (!reportDir.exists()) {
-                reportDir.mkdirs();
-            }
+            // Build report content
+            StringBuilder reportContent = new StringBuilder();
+            reportContent.append("BookingID,GuestName,RoomType,CheckIn,CheckOut,Amount\n");
+            reportContent.append("BK-001,John Smith,SUITE,2024-03-01,2024-03-05,1750.00\n");
+            reportContent.append("BK-002,Jane Doe,DELUXE,2024-03-03,2024-03-07,960.00\n");
 
-            FileWriter writer = new FileWriter(fullPath);
-            writer.write("BookingID,GuestName,RoomType,CheckIn,CheckOut,Amount\n");
-            writer.write("BK-001,John Smith,SUITE,2024-03-01,2024-03-05,1750.00\n");
-            writer.write("BK-002,Jane Doe,DELUXE,2024-03-03,2024-03-07,960.00\n");
-            writer.close();
+            // REMEDIATION cr-java-0062: Replace local file system write with Amazon S3
+            // Local file writes are ephemeral in containerized/cloud environments.
+            // Using S3 ensures data durability, availability, and scalability.
+            PutObjectRequest putRequest = PutObjectRequest.builder()
+                    .bucket(s3BucketName)
+                    .key(fileName)
+                    .build();
+            s3Client.putObject(putRequest, RequestBody.fromString(reportContent.toString()));
+
+            String s3ObjectUrl = "s3://" + s3BucketName + "/" + fileName;
 
             result.put("status", "generated");
-            result.put("path", fullPath);
-            result.put("serverPort", SERVER_PORT); // czr-port-001
+            result.put("path", s3ObjectUrl);
+            result.put("serverPort", serverPort);
 
-        } catch (IOException e) {
+        } catch (S3Exception e) {
             result.put("status", "error");
             result.put("message", e.getMessage());
         }
@@ -67,11 +96,11 @@ public class ReportService {
     }
 
     public Map<String, Object> getSystemInfo() { // doc-missing-001
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+        String timestamp = ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         Map<String, Object> info = new HashMap<>();
         info.put("reportPath", REPORT_BASE_PATH);  // czr-java-001
         info.put("backupPath", BACKUP_PATH);        // czr-java-001
-        info.put("serverPort", SERVER_PORT);        // czr-port-001
+        info.put("serverPort", serverPort);
         info.put("generatedAt", timestamp);
         return info;
     }

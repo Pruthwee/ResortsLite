@@ -47,6 +47,25 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- AWS SDK v2 S3 for cloud-native file storage (replaces local file system writes) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.20.137</version>
+        </dependency>
+        <!-- AWS SDK v2 Secrets Manager for cloud-native secret retrieval (replaces hard-coded DB credentials) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+            <version>2.20.137</version>
+        </dependency>
+        <!-- Amazon ElastiCache for Redis client (Spring Data Redis with Lettuce) -->
+        <!-- REMEDIATION cr-java-0067: Replaces unbounded in-memory caching with -->
+        <!-- centralized Redis cache with TTL for cloud-native horizontal scaling -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

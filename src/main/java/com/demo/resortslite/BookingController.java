@@ -1,9 +1,13 @@
 package com.demo.resortslite;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpSession;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,9 +18,14 @@ public class BookingController {
     @Autowired
     private BookingService bookingService;
 
-    // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    // REMEDIATION cr-java-0067: Replace in-memory caching with Amazon ElastiCache for Redis
+    // with proper TTL policies to ensure controlled expiration, consistent data across
+    // instances, and centralized cache management.
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Value("${app.cache.ttl.seconds:3600}")
+    private int cacheTtlSeconds;
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -34,7 +43,14 @@ public class BookingController {
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        // REMEDIATION cr-java-0067: Cache booking in Amazon ElastiCache for Redis with TTL
+        // instead of unbounded in-memory HashMap. This ensures:
+        // - Controlled expiration via TTL (prevents indefinite memory growth)
+        // - Consistent data across all application instances
+        // - Centralized cache management
+        String cacheKey = "booking:" + booking.get("bookingId");
+        ValueOperations<String, Object> valueOps = redisTemplate.opsForValue();
+        valueOps.set(cacheKey, booking, Duration.ofSeconds(cacheTtlSeconds));
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
