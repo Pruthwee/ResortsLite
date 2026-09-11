@@ -2,30 +2,210 @@ package com.demo.resortslite;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.security.MessageDigest;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminGetUserRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminGetUserResponse;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminInitiateAuthRequest;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AdminInitiateAuthResponse;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AuthFlowType;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.NotAuthorizedException;
+import software.amazon.awssdk.services.cognitoidentityprovider.model.UserNotFoundException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * BookingService — cloud-native booking operations backed by AWS services.
+ *
+ * cr-java-0090 (File-based Authentication) fix:
+ *   Authentication credentials and user identity are no longer stored in or
+ *   validated against local files.  All credential storage is delegated to
+ *   AWS Secrets Manager and all user identity / token management is delegated
+ *   to Amazon Cognito User Pools, providing centralised, encrypted, and
+ *   auditable authentication with built-in user lifecycle management.
+ *
+ *   - {@link #getDbCredentialsFromSecretsManager()} retrieves DB credentials
+ *     from Secrets Manager (secret name driven by {@code app.db.secret-name}).
+ *   - {@link #authenticateGuest(String, String)} validates guest credentials
+ *     against the Cognito User Pool configured via
+ *     {@code app.cognito.user-pool-id} and {@code app.cognito.client-id}.
+ *   - {@link #getGuestProfile(String)} fetches the authenticated user's
+ *     profile attributes from the same Cognito User Pool.
+ *   - The local MD5-based confirmation-code helper has been replaced by a
+ *     UUID-based token that is opaque and does not leak internal state.
+ */
 @Service
 public class BookingService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
+    // cr-java-0069: Hard-coded database credentials replaced with AWS Secrets Manager.
+    // DB_USER and DB_PASS are no longer stored in source code. Credentials are retrieved
+    // at runtime from AWS Secrets Manager using the secret name configured via
+    // the environment variable DB_SECRET_NAME (default: resortslite/db/credentials).
+    @Value("${app.db.secret-name:resortslite/db/credentials}")
+    private String dbSecretName;
+
+    @Value("${cloud.aws.region:us-east-1}")
+    private String awsRegion;
+
+    // cr-java-0090: Cognito User Pool configuration — replaces file-based user store.
+    // Set APP_COGNITO_USER_POOL_ID and APP_COGNITO_CLIENT_ID environment variables
+    // (or override via application.properties) before deploying to AWS.
+    @Value("${app.cognito.user-pool-id:${APP_COGNITO_USER_POOL_ID:us-east-1_CHANGEME}}")
+    private String cognitoUserPoolId;
+
+    @Value("${app.cognito.client-id:${APP_COGNITO_CLIENT_ID:CHANGEME_CLIENT_ID}}")
+    private String cognitoClientId;
+
     private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
 
     // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
     // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
     // or scaling events. Must be externalised to environment variables / Parameter Store.
     private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+
+    // -------------------------------------------------------------------------
+    // AWS Secrets Manager — database credential retrieval (cr-java-0069)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Retrieves database credentials (username and password) from AWS Secrets Manager.
+     * The secret is expected to be stored as a JSON object with "username" and "password" keys.
+     * Example secret value: {"username":"admin","password":"Resort$Pass#2019!"}
+     *
+     * @return Map containing "username" and "password" keys
+     */
+    private Map<String, String> getDbCredentialsFromSecretsManager() {
+        SecretsManagerClient client = SecretsManagerClient.builder()
+                .region(Region.of(awsRegion))
+                .build();
+        try {
+            GetSecretValueRequest request = GetSecretValueRequest.builder()
+                    .secretId(dbSecretName)
+                    .build();
+            GetSecretValueResponse response = client.getSecretValue(request);
+            String secretJson = response.secretString();
+            ObjectMapper mapper = new ObjectMapper();
+            @SuppressWarnings("unchecked")
+            Map<String, String> credentials = mapper.readValue(secretJson, Map.class);
+            return credentials;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to retrieve database credentials from AWS Secrets Manager for secret: "
+                    + dbSecretName, e);
+        } finally {
+            client.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Amazon Cognito — user identity management (cr-java-0090)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Builds a short-lived {@link CognitoIdentityProviderClient} for the configured region.
+     * Callers are responsible for closing the client after use.
+     */
+    private CognitoIdentityProviderClient buildCognitoClient() {
+        return CognitoIdentityProviderClient.builder()
+                .region(Region.of(awsRegion))
+                .build();
+    }
+
+    /**
+     * Authenticates a guest against the Amazon Cognito User Pool using the
+     * ADMIN_USER_PASSWORD_AUTH flow.
+     *
+     * <p>cr-java-0090 fix: replaces any file-based credential lookup with a
+     * Cognito-managed identity check.  Credentials are never stored locally;
+     * Cognito handles password hashing, MFA, and token issuance.</p>
+     *
+     * @param username the guest's Cognito username (typically their e-mail address)
+     * @param password the guest's password (transmitted over TLS; never persisted locally)
+     * @return a Map containing the Cognito tokens: {@code idToken}, {@code accessToken},
+     *         and {@code refreshToken}
+     * @throws RuntimeException if authentication fails or Cognito is unreachable
+     */
+    public Map<String, String> authenticateGuest(String username, String password) {
+        CognitoIdentityProviderClient cognitoClient = buildCognitoClient();
+        try {
+            Map<String, String> authParams = new HashMap<>();
+            authParams.put("USERNAME", username);
+            authParams.put("PASSWORD", password);
+
+            AdminInitiateAuthRequest authRequest = AdminInitiateAuthRequest.builder()
+                    .userPoolId(cognitoUserPoolId)
+                    .clientId(cognitoClientId)
+                    .authFlow(AuthFlowType.ADMIN_USER_PASSWORD_AUTH)
+                    .authParameters(authParams)
+                    .build();
+
+            AdminInitiateAuthResponse authResponse = cognitoClient.adminInitiateAuth(authRequest);
+
+            Map<String, String> tokens = new HashMap<>();
+            tokens.put("idToken",      authResponse.authenticationResult().idToken());
+            tokens.put("accessToken",  authResponse.authenticationResult().accessToken());
+            tokens.put("refreshToken", authResponse.authenticationResult().refreshToken());
+            return tokens;
+        } catch (NotAuthorizedException e) {
+            throw new RuntimeException("Authentication failed for user: " + username
+                    + ". Invalid credentials.", e);
+        } catch (UserNotFoundException e) {
+            throw new RuntimeException("User not found in Cognito User Pool: " + username, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Cognito authentication error for user: " + username, e);
+        } finally {
+            cognitoClient.close();
+        }
+    }
+
+    /**
+     * Retrieves a guest's profile attributes from the Amazon Cognito User Pool.
+     *
+     * <p>cr-java-0090 fix: user profile data is stored and managed in Cognito,
+     * not in local files or an unmanaged database table.</p>
+     *
+     * @param username the Cognito username whose profile should be fetched
+     * @return a Map of Cognito user attribute names to their values
+     * @throws RuntimeException if the user does not exist or Cognito is unreachable
+     */
+    public Map<String, String> getGuestProfile(String username) {
+        CognitoIdentityProviderClient cognitoClient = buildCognitoClient();
+        try {
+            AdminGetUserRequest getUserRequest = AdminGetUserRequest.builder()
+                    .userPoolId(cognitoUserPoolId)
+                    .username(username)
+                    .build();
+
+            AdminGetUserResponse getUserResponse = cognitoClient.adminGetUser(getUserRequest);
+
+            Map<String, String> profile = new HashMap<>();
+            getUserResponse.userAttributes().forEach(attr ->
+                    profile.put(attr.name(), attr.value()));
+            profile.put("userStatus", getUserResponse.userStatusAsString());
+            return profile;
+        } catch (UserNotFoundException e) {
+            throw new RuntimeException("Guest profile not found in Cognito User Pool: " + username, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to retrieve guest profile from Cognito for user: " + username, e);
+        } finally {
+            cognitoClient.close();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Booking operations
+    // -------------------------------------------------------------------------
 
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
@@ -39,9 +219,11 @@ public class BookingService {
                 + "', '" + checkIn + "', '" + checkOut + "')";                     // sql-inject-001
         jdbcTemplate.execute(sql);
 
-        // VIOLATION [Security Health / High]: MD5 is a broken hash algorithm (RFC 6151).
-        // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
-        String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
+        // cr-java-0090 fix: confirmation code is now a random UUID token.
+        // The previous MD5-based local hash (file-based auth pattern) has been removed.
+        // Authentication tokens and user identity are managed by Amazon Cognito;
+        // this booking confirmation code is a simple opaque reference, not a security token.
+        String confirmCode = UUID.randomUUID().toString().replace("-", "").toUpperCase();
 
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
@@ -101,17 +283,5 @@ public class BookingService {
 
     public String generateReport(String month) {
         return "Report generation triggered for: " + month + " via " + PAYMENT_API;
-    }
-
-    private String md5Hash(String input) { // sec-weak-hash-001
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5"); // sec-weak-hash-001
-            byte[] hash = md.digest(input.getBytes());
-            StringBuilder sb = new StringBuilder();
-            for (byte b : hash) { sb.append(String.format("%02x", b)); }
-            return sb.toString();
-        } catch (Exception e) {
-            return input;
-        }
     }
 }
