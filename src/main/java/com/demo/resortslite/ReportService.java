@@ -13,28 +13,31 @@ import java.util.Map;
 @Service
 public class ReportService {
 
-    // VIOLATION czr-java-001 [Software Portability / Mandatory]: Hardcoded absolute path.
-    // /var/legacy/reports does not exist in a Docker container image. Breaks containerisation.
-    // Must use volume mounts, cloud object storage (S3 / Azure Blob), or environment variable.
-    private static final String REPORT_BASE_PATH = "/var/legacy/reports/"; // czr-java-001
+    // Externalized report base path via environment variable
+    private static final String REPORT_BASE_PATH = System.getenv().getOrDefault("REPORT_BASE_PATH", "/tmp/reports/");
 
-    // VIOLATION czr-java-001 [Software Portability / Mandatory]: Windows-style absolute path
-    // will fail on any Linux-based container or cloud host. Hard dependency on OS path structure.
-    private static final String BACKUP_PATH = "C:\\ResortBackups\\nightly\\"; // czr-java-001
+    // Externalized backup path via environment variable
+    private static final String BACKUP_PATH = System.getenv().getOrDefault("BACKUP_PATH", "/tmp/backups/");
 
-    // VIOLATION [Software Portability / High]: Fixed server port hardcoded in application logic.
-    // Container orchestration (ECS / EKS) dynamically assigns ports. Hardcoded ports prevent
-    // dynamic port binding required for modern container deployment and service discovery.
-    private static final int SERVER_PORT = 8080; // czr-port-001
+    // Externalized server port via environment variable
+    private static final int SERVER_PORT = Integer.parseInt(
+            System.getenv().getOrDefault("SERVER_PORT", "8080"));
 
+    /**
+     * Generates a monthly report CSV file for the given month and year.
+     *
+     * @param month the month for the report
+     * @param year  the year for the report
+     * @return a map containing the report status, path, and server port
+     */
     public Map<String, Object> generateMonthlyReport(String month, String year) {
         String fileName = "resort_report_" + month + "_" + year + ".csv";
-        String fullPath = REPORT_BASE_PATH + fileName; // czr-java-001
+        String fullPath = REPORT_BASE_PATH + fileName;
 
         Map<String, Object> result = new HashMap<>();
 
         try {
-            File reportDir = new File(REPORT_BASE_PATH); // czr-java-001
+            File reportDir = new File(REPORT_BASE_PATH);
             if (!reportDir.exists()) {
                 reportDir.mkdirs();
             }
@@ -47,7 +50,7 @@ public class ReportService {
 
             result.put("status", "generated");
             result.put("path", fullPath);
-            result.put("serverPort", SERVER_PORT); // czr-port-001
+            result.put("serverPort", SERVER_PORT);
 
         } catch (IOException e) {
             result.put("status", "error");
@@ -57,21 +60,28 @@ public class ReportService {
         return result;
     }
 
-    // VIOLATION [Code Sustainability / Medium]: No JavaDoc or method documentation.
-    // Missing documentation is flagged across all public methods in the codebase.
-    // This increases onboarding time and transformation risk for automated tools.
-    public String buildReportDownloadUrl(String reportName) { // doc-missing-001
-        // VIOLATION cr-java-0088 [Cloud Compatibility / Mandatory]: Plain HTTP URL
-        // hardcoded for report download. Cloud security standards enforce HTTPS.
-        return "http://reports.resorts-internal.com:8080/download/" + reportName; // cr-java-0088
+    /**
+     * Builds a download URL for the given report name.
+     *
+     * @param reportName the name of the report
+     * @return the HTTPS download URL for the report
+     */
+    public String buildReportDownloadUrl(String reportName) {
+        return "https://reports.resorts-internal.com:8443/download/" + reportName;
     }
 
-    public Map<String, Object> getSystemInfo() { // doc-missing-001
+    /**
+     * Returns system information including report path, backup path,
+     * server port, and generation timestamp.
+     *
+     * @return a map containing system information
+     */
+    public Map<String, Object> getSystemInfo() {
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
         Map<String, Object> info = new HashMap<>();
-        info.put("reportPath", REPORT_BASE_PATH);  // czr-java-001
-        info.put("backupPath", BACKUP_PATH);        // czr-java-001
-        info.put("serverPort", SERVER_PORT);        // czr-port-001
+        info.put("reportPath", REPORT_BASE_PATH);
+        info.put("backupPath", BACKUP_PATH);
+        info.put("serverPort", SERVER_PORT);
         info.put("generatedAt", timestamp);
         return info;
     }
