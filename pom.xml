@@ -47,6 +47,28 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- AWS SDK v2 - S3 object storage for cloud-native file operations -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.20.137</version>
+        </dependency>
+        <!-- AWS SDK v2 - Secrets Manager for cloud-native secret retrieval -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+            <version>2.20.137</version>
+        </dependency>
+        <!-- Spring Session Data Redis — migrates HTTP session state to Amazon ElastiCache for Redis -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+        <!-- Spring Boot Data Redis — Redis client for connecting to ElastiCache -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

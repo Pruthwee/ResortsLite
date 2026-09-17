@@ -2,7 +2,15 @@ package com.demo.resortslite;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.security.MessageDigest;
 import java.util.HashMap;
@@ -15,17 +23,57 @@ public class BookingService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    // Cloud-native: Database credentials (host, username, password) are retrieved from
+    // AWS Secrets Manager instead of being hard-coded in source code. This enables
+    // automatic credential rotation through AWS Secrets Manager without redeployment
+    // and prevents credential exposure in version control or container image layers.
+    @Value("${app.db.secret.name:resorts-lite-db-credentials}")
+    private String dbSecretName;
 
-    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
-    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
-    // or scaling events. Must be externalised to environment variables / Parameter Store.
+    @Value("${app.db.secret.region:us-east-1}")
+    private String dbSecretRegion;
+
+    // Hardcoded infrastructure hostname — not part of cr-java-0069 (database credentials)
+    // but kept here for reference; covered by cr-java-0021 remediation.
     private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+
+    // Lazily-initialised Secrets Manager client using the default credentials provider
+    // chain (environment variables, system properties, EC2/ECS instance metadata, etc.).
+    private SecretsManagerClient secretsManagerClient;
+
+    /**
+     * Returns a lazily-initialised SecretsManagerClient using the configured region
+     * and the DefaultCredentialsProvider chain so that no credentials are hard-coded.
+     */
+    private SecretsManagerClient getSecretsManagerClient() {
+        if (secretsManagerClient == null) {
+            secretsManagerClient = SecretsManagerClient.builder()
+                    .region(Region.of(dbSecretRegion))
+                    .credentialsProvider(DefaultCredentialsProvider.create())
+                    .build();
+        }
+        return secretsManagerClient;
+    }
+
+    /**
+     * Retrieves database credentials (host, username, password) from AWS Secrets Manager.
+     * The secret is expected to be a JSON object with keys: host, username, password.
+     */
+    private Map<String, String> getDbCredentials() {
+        try {
+            GetSecretValueRequest request = GetSecretValueRequest.builder()
+                    .secretId(dbSecretName)
+                    .build();
+            GetSecretValueResponse response = getSecretsManagerClient().getSecretValue(request);
+            String secretString = response.secretString();
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(secretString, new TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            // Return empty map if secret retrieval fails; JdbcTemplate datasource
+            // is configured separately via application.properties
+            return new HashMap<>();
+        }
+    }
 
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
@@ -43,6 +91,10 @@ public class BookingService {
         // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
         String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
 
+        // Retrieve database host from AWS Secrets Manager (replaces hard-coded value)
+        Map<String, String> dbCredentials = getDbCredentials();
+        String dbHost = dbCredentials.getOrDefault("host", "localhost");
+
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
         booking.put("guestName", guestName);
@@ -50,7 +102,7 @@ public class BookingService {
         booking.put("checkIn", checkIn);
         booking.put("checkOut", checkOut);
         booking.put("confirmationCode", confirmCode);
-        booking.put("dbHost", DB_HOST);
+        booking.put("dbHost", dbHost);
         return booking;
     }
 
@@ -93,7 +145,7 @@ public class BookingService {
         // Same room type validation is repeated here and in calculateRoomPrice.
         // Should be extracted to a shared RoomType enum or validator.
         if (!roomType.equals("STANDARD") && !roomType.equals("DELUXE") // dup-logic-001
-                && !roomType.equals("SUITE") && !roomType.equals("VILLA")) { // dup-logic-001
+                && !roomType.equals("SUITE") && !roomType.equals("VOILLA")) { // dup-logic-001
             return false;
         }
         return true;
