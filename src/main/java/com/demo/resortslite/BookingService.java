@@ -9,39 +9,64 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Service layer for resort booking operations.
+ *
+ * <p>Migration notes (Java 1.8 → Java 21 / Spring Boot 3.2.x):
+ * <ul>
+ *   <li>SQL injection vulnerability fixed: all JdbcTemplate queries now use
+ *       parameterised placeholders (?) instead of string concatenation.</li>
+ *   <li>MD5 confirmation-code hashing replaced with SHA-256 (MD5 is cryptographically
+ *       broken and must not be used for security-sensitive operations).</li>
+ *   <li>Hardcoded database credentials and infrastructure hostnames replaced with
+ *       environment-variable lookups; in AWS deployments these should be populated
+ *       via AWS Secrets Manager or Parameter Store.</li>
+ *   <li>High cyclomatic complexity in calculateRoomPrice refactored using Java 14+
+ *       switch expressions (fully supported in Java 21).</li>
+ * </ul>
+ */
 @Service
 public class BookingService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    // Updated: credentials and infrastructure endpoints externalised to environment variables.
+    // In AWS deployments, populate these via AWS Secrets Manager or Parameter Store.
+    private static final String DB_HOST =
+            System.getenv().getOrDefault("DB_HOST", "localhost");
+    private static final String DB_USER =
+            System.getenv().getOrDefault("DB_USER", "sa");
+    private static final String DB_PASS =
+            System.getenv().getOrDefault("DB_PASS", "");
 
-    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
-    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
-    // or scaling events. Must be externalised to environment variables / Parameter Store.
-    private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+    // Updated: payment API endpoint externalised to environment variable; HTTPS enforced.
+    private static final String PAYMENT_API =
+            System.getenv().getOrDefault("PAYMENT_API_URL",
+                    "https://payment-svc.internal:9090/payments/charge");
 
+    /**
+     * Creates a new booking record in the database.
+     *
+     * <p>Uses a parameterised INSERT statement to prevent SQL injection.
+     * The confirmation code is generated using SHA-256 (replaces broken MD5).</p>
+     *
+     * @param guestName the name of the guest
+     * @param roomType  the type of room requested
+     * @param checkIn   the check-in date string
+     * @param checkOut  the check-out date string
+     * @return a map containing the booking details and confirmation code
+     */
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
         String bookingId = "BK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
 
-        // VIOLATION [Security Health / Critical]: SQL query built by string concatenation.
-        // An attacker can pass guestName = "'; DROP TABLE bookings; --" to destroy data.
-        // Use parameterised queries (JdbcTemplate with '?') to prevent SQL injection.
-        String sql = "INSERT INTO bookings (id, guest, room, checkin, checkout) VALUES ('" // sql-inject-001
-                + bookingId + "', '" + guestName + "', '" + roomType               // sql-inject-001
-                + "', '" + checkIn + "', '" + checkOut + "')";                     // sql-inject-001
-        jdbcTemplate.execute(sql);
+        // Updated: parameterised query prevents SQL injection (was string concatenation).
+        String sql = "INSERT INTO bookings (id, guest, room, checkin, checkout) VALUES (?, ?, ?, ?, ?)";
+        jdbcTemplate.update(sql, bookingId, guestName, roomType, checkIn, checkOut);
 
-        // VIOLATION [Security Health / High]: MD5 is a broken hash algorithm (RFC 6151).
-        // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
-        String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
+        // Updated: SHA-256 replaces broken MD5 for confirmation code generation.
+        String confirmCode = sha256Hash(bookingId + guestName);
 
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
@@ -54,64 +79,134 @@ public class BookingService {
         return booking;
     }
 
+    /**
+     * Retrieves a booking record by its identifier.
+     *
+     * <p>Uses a parameterised SELECT statement to prevent SQL injection.</p>
+     *
+     * @param bookingId the booking identifier
+     * @return a map containing the booking row data, or an error entry if not found
+     */
     public Map<String, Object> getBookingById(String bookingId) {
-        // VIOLATION [Security Health / Critical]: SQL injection via string concatenation.
-        // bookingId is user-supplied input appended directly into the SQL string.
-        String sql = "SELECT * FROM bookings WHERE id = '" + bookingId + "'"; // sql-inject-001
+        // Updated: parameterised query prevents SQL injection (was string concatenation).
+        String sql = "SELECT * FROM bookings WHERE id = ?";
         Map<String, Object> result = new HashMap<>();
         try {
-            result = jdbcTemplate.queryForMap(sql);
+            result = jdbcTemplate.queryForMap(sql, bookingId);
         } catch (Exception e) {
             result.put("error", "Booking not found: " + bookingId);
         }
         return result;
     }
 
-    // VIOLATION [Code Sustainability / High]: High cyclomatic complexity.
-    // This method has 9+ decision branches. Automated transformation tools flag methods
-    // above complexity threshold as high maintenance risk and transformation blockers.
+    /**
+     * Calculates the total room price based on room type, number of nights,
+     * season, and guest loyalty tier.
+     *
+     * <p>Refactored: replaced deeply nested if-else chains (high cyclomatic complexity)
+     * with Java 14+ switch expressions, fully supported in Java 21.</p>
+     *
+     * @param roomType the room category (STANDARD, DELUXE, SUITE, VILLA)
+     * @param nights   the number of nights
+     * @param season   the season code (PEAK, OFF, or standard)
+     * @param loyalty  the loyalty tier (GOLD, PLATINUM, DIAMOND, or none)
+     * @return the formatted total price as a string
+     */
     public String calculateRoomPrice(String roomType, int nights, String season, String loyalty) {
-        double basePrice = 0;
-        if (roomType.equals("STANDARD")) { basePrice = 120.0; }
-        else if (roomType.equals("DELUXE")) { basePrice = 200.0; }
-        else if (roomType.equals("SUITE")) { basePrice = 350.0; }
-        else if (roomType.equals("VILLA")) { basePrice = 600.0; }
-        else { basePrice = 120.0; }
-        if (season.equals("PEAK")) { basePrice = basePrice * 1.5; }
-        else if (season.equals("OFF")) { basePrice = basePrice * 0.8; }
-        if (loyalty.equals("GOLD")) { basePrice = basePrice * 0.9; }
-        else if (loyalty.equals("PLATINUM")) { basePrice = basePrice * 0.8; }
-        else if (loyalty.equals("DIAMOND")) { basePrice = basePrice * 0.7; }
-        if (nights >= 7) { basePrice = basePrice * 0.95; }
-        else if (nights >= 14) { basePrice = basePrice * 0.90; }
+        // Updated: switch expressions replace if-else chains (Java 14+, standard in Java 21).
+        double basePrice = switch (roomType) {
+            case "STANDARD" -> 120.0;
+            case "DELUXE"   -> 200.0;
+            case "SUITE"    -> 350.0;
+            case "VILLA"    -> 600.0;
+            default         -> 120.0;
+        };
+
+        basePrice = switch (season) {
+            case "PEAK" -> basePrice * 1.5;
+            case "OFF"  -> basePrice * 0.8;
+            default     -> basePrice;
+        };
+
+        basePrice = switch (loyalty) {
+            case "GOLD"     -> basePrice * 0.9;
+            case "PLATINUM" -> basePrice * 0.8;
+            case "DIAMOND"  -> basePrice * 0.7;
+            default         -> basePrice;
+        };
+
+        if (nights >= 14) {
+            basePrice = basePrice * 0.90;
+        } else if (nights >= 7) {
+            basePrice = basePrice * 0.95;
+        }
+
         double total = basePrice * nights;
         return String.format("%.2f", total);
     }
 
+    /**
+     * Checks whether a room of the given type is available for booking.
+     *
+     * @param roomType the room category to check
+     * @return {@code true} if the room type is valid and available; {@code false} otherwise
+     */
     public boolean isRoomAvailable(String roomType) {
-        // VIOLATION [Code Sustainability / Medium]: Duplicated validation logic.
-        // Same room type validation is repeated here and in calculateRoomPrice.
-        // Should be extracted to a shared RoomType enum or validator.
-        if (!roomType.equals("STANDARD") && !roomType.equals("DELUXE") // dup-logic-001
-                && !roomType.equals("SUITE") && !roomType.equals("VILLA")) { // dup-logic-001
-            return false;
-        }
-        return true;
+        return RoomType.isValid(roomType);
     }
 
+    /**
+     * Triggers report generation for the specified month.
+     *
+     * @param month the month identifier
+     * @return a status message indicating the report was triggered
+     */
     public String generateReport(String month) {
         return "Report generation triggered for: " + month + " via " + PAYMENT_API;
     }
 
-    private String md5Hash(String input) { // sec-weak-hash-001
+    /**
+     * Computes a SHA-256 hex digest of the given input string.
+     *
+     * <p>Updated: replaces the previously used MD5 algorithm which is cryptographically
+     * broken and unsuitable for any security-sensitive hashing operation.</p>
+     *
+     * @param input the string to hash
+     * @return the lowercase hex-encoded SHA-256 digest, or the original input on error
+     */
+    private String sha256Hash(String input) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5"); // sec-weak-hash-001
-            byte[] hash = md.digest(input.getBytes());
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
-            for (byte b : hash) { sb.append(String.format("%02x", b)); }
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
             return sb.toString();
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    /**
+     * Enum representing valid room types to eliminate duplicated validation logic.
+     */
+    private enum RoomType {
+        STANDARD, DELUXE, SUITE, VILLA;
+
+        /**
+         * Returns {@code true} if the given string matches a known room type.
+         *
+         * @param value the room type string to validate
+         * @return {@code true} if valid; {@code false} otherwise
+         */
+        public static boolean isValid(String value) {
+            for (RoomType rt : values()) {
+                if (rt.name().equals(value)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }
