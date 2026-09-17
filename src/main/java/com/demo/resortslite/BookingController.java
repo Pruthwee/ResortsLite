@@ -3,7 +3,9 @@ package com.demo.resortslite;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpSession;
+// Updated from javax.servlet to jakarta.servlet for Java 21 / Spring Boot 3.x
+// (JAVA8_TO_21_JAKARTA_EE_MIGRATION — javax.servlet removed in Jakarta EE 10)
+import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -15,7 +17,8 @@ public class BookingController {
     private BookingService bookingService;
 
     // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
+    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances.
+    // Recommended fix: replace with a distributed cache (e.g., AWS ElastiCache / Redis).
     private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
 
     @PostMapping("/create")

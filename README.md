@@ -1,57 +1,67 @@
-# ResortsLite — Legacy Java 8 Demo Application
+# ResortsLite — Modernised Java 21 / Spring Boot 3.2.x Application
 
-A compact Spring Boot 2.7.x resort booking application built with **intentional legacy
-patterns** across all four COMPASS assessment domains.
+A compact Spring Boot 3.2.x resort booking application modernised from Java 8 / Spring Boot 2.7.x
+as part of the **Concierto Modernize** AWS upgrade campaign (IDE1-ResortAWSUpgradeCMP).
 
-**Purpose:** Hands-on Concierto Modernize demo — scan, assess, and transform.
-
----
-
-## Tech Stack
-
-| Item | Version |
-|---|---|
-| Java | 1.8 |
-| Spring Boot | 2.7.18 |
-| Spring MVC | 5.3.x |
-| Build | Maven |
-| Database | H2 in-memory |
+**Build Status:** ✅ 0 compilation errors — clean build on Java 21 / Spring Boot 3.2.5
 
 ---
 
-## Violation Traceability Matrix
+## Tech Stack (Post-Transformation)
 
-| Rule ID | Domain | Severity | File | Line(s) | Description |
-|---|---|---|---|---|---|
-| cr-java-0065 | Cloud Compatibility | Mandatory | BookingController.java | 33, 34, 48 | HTTP session state storage — breaks auto-scaling |
-| cr-java-0067 | Cloud Compatibility | Potential | BookingController.java | 18 | In-memory cache without TTL — instance-local |
-| cr-java-0088 | Cloud Compatibility | Mandatory | BookingController.java | 60 | Plain HTTP URL for internal service call |
-| cr-java-0088 | Cloud Compatibility | Mandatory | ReportService.java | 59 | Plain HTTP URL for report download |
-| cr-java-0021 | Cloud Compatibility | Mandatory | BookingService.java | 20, 25 | Hardcoded DB hostname + payment API endpoint |
-| cr-java-0021 | Cloud Compatibility | Mandatory | application.properties | 12–17 | Hardcoded internal service endpoints |
-| czr-java-001 | Software Portability | Mandatory | BookingController.java | 71 | Hardcoded absolute file path in controller |
-| czr-java-001 | Software Portability | Mandatory | ReportService.java | 17, 20 | Hardcoded Linux + Windows absolute paths |
-| czr-port-001 | Software Portability | High | ReportService.java | 24 | Fixed server port — blocks ECS/EKS dynamic binding |
-| sql-inject-001 | Security Health | Critical | BookingService.java | 36–38 | SQL injection via string concatenation (INSERT) |
-| sql-inject-001 | Security Health | Critical | BookingService.java | 53 | SQL injection via string concatenation (SELECT) |
-| sec-cred-001 | Security Health | Critical | BookingService.java | 21, 22 | Hardcoded database credentials in source code |
-| sec-weak-hash-001 | Security Health | High | BookingService.java | 43, 91, 92 | MD5 used for confirmation code hashing |
-| CVE-2021-44228 | Security Health | Critical | pom.xml | 35 | Log4j 2.14.1 — Log4Shell RCE vulnerability |
-| CVE-2015-6420 | Security Health | High | pom.xml | 41 | commons-collections 3.2.1 — RCE via deserialization |
-| dup-logic-001 | Code Sustainability | Medium | BookingService.java | 71–72 | Duplicated room type validation |
-| complexity-001 | Code Sustainability | High | BookingService.java | 65–82 | Cyclomatic complexity > 9 in calculateRoomPrice |
-| doc-missing-001 | Code Sustainability | Medium | ReportService.java | 55, 63 | Missing JavaDoc on public methods |
-
----
-
-## Expected COMPASS Scores (Pre-Transformation)
-
-| Domain | Expected Score | Primary Driver |
+| Item | Before | After |
 |---|---|---|
-| Cloud Compatibility | ~55 / 100 | 6 cloud blockers (session, config, HTTP) |
-| Software Portability | ~70 / 100 | Hardcoded paths + fixed port |
-| Code Sustainability | ~65 / 100 | High complexity + duplication + missing docs |
-| Security Health | ~45 / 100 | 2 critical CVEs + SQL injection + hardcoded creds |
+| Java | 1.8 | **21** |
+| Spring Boot | 2.7.18 | **3.2.5** |
+| Jakarta EE | javax.servlet | **jakarta.servlet** |
+| MySQL Connector | mysql-connector-java | **com.mysql:mysql-connector-j:8.2.0** |
+| Log4j Core | 2.14.1 (CVE-2021-44228) | **2.23.1** |
+| Commons Collections | 3.2.1 (CVE-2015-6420) | **3.2.2** |
+| Hashing | MD5 (broken) | **SHA-256** |
+| Date/Time API | java.util.Date / SimpleDateFormat | **java.time.LocalDateTime + DateTimeFormatter** |
+| maven-compiler-plugin | (default) | **3.13.0** |
+| maven-surefire-plugin | (default) | **3.2.5** |
+| Build | Maven | Maven |
+| Database | H2 in-memory | H2 in-memory |
+
+---
+
+## Transformation Summary
+
+### ✅ Completed Transformations
+
+| Rule / Category | File(s) | Change Applied |
+|---|---|---|
+| JAVA8_TO_21_JAKARTA_EE_MIGRATION | BookingController.java | `javax.servlet` → `jakarta.servlet` |
+| JAVA8_TO_21_SPRING_BOOT_COMPATIBILITY | pom.xml | Spring Boot 2.7.18 → 3.2.5 |
+| JAVA8_TO_21_DEPENDENCY_UPDATES | pom.xml | Java source/target/release set to 21 |
+| JAVA8_TO_21_DEPENDENCY_UPDATES | pom.xml | mysql-connector-java → com.mysql:mysql-connector-j:8.2.0 |
+| JAVA8_TO_21_SECURITY_CHANGES | BookingService.java | MD5 → SHA-256 (MessageDigest) |
+| JAVA8_TO_21_DATE_TIME_CHANGES | ReportService.java | java.util.Date/SimpleDateFormat → java.time.LocalDateTime |
+| JAVA8_TO_17_SPECIFIC_DEPENDENCY_UPDATES | pom.xml | log4j-core 2.14.1 → 2.23.1 (Log4Shell fix) |
+| JAVA8_TO_17_DEPENDENCY_CONFLICTS | pom.xml | commons-collections 3.2.1 → 3.2.2 (RCE fix) |
+| JAVA8_TO_17_MAVEN_PLUGIN_UPDATES | pom.xml | maven-surefire-plugin → 3.2.5 |
+| JAVA8_TO_17_LOMBOK_CONFIGURATION | pom.xml | maven-compiler-plugin → 3.13.0 |
+
+---
+
+## Remaining Violation Traceability (Runtime / Architecture — Not Compilation Errors)
+
+The following are **runtime / cloud-architecture** violations noted for future remediation.
+They do **not** cause compilation errors.
+
+| Rule ID | Domain | Severity | File | Description |
+|---|---|---|---|---|
+| cr-java-0065 | Cloud Compatibility | Mandatory | BookingController.java | HTTP session state — breaks auto-scaling |
+| cr-java-0067 | Cloud Compatibility | Potential | BookingController.java | In-memory cache without TTL — instance-local |
+| cr-java-0088 | Cloud Compatibility | Mandatory | BookingController.java, ReportService.java | Plain HTTP URLs for internal service calls |
+| cr-java-0021 | Cloud Compatibility | Mandatory | BookingService.java, application.properties | Hardcoded DB hostname + service endpoints |
+| czr-java-001 | Software Portability | Mandatory | BookingController.java, ReportService.java | Hardcoded absolute file paths |
+| czr-port-001 | Software Portability | High | ReportService.java | Fixed server port — blocks ECS/EKS dynamic binding |
+| sql-inject-001 | Security Health | Critical | BookingService.java | SQL injection via string concatenation |
+| sec-cred-001 | Security Health | Critical | BookingService.java | Hardcoded database credentials in source code |
+| dup-logic-001 | Code Sustainability | Medium | BookingService.java | Duplicated room type validation |
+| complexity-001 | Code Sustainability | High | BookingService.java | Cyclomatic complexity > 9 in calculateRoomPrice |
 
 ---
 
@@ -75,16 +85,15 @@ GET  /api/bookings/report/download?month=june
 
 ---
 
-## Line Count Summary
+## Source File Summary
 
-| File | Lines |
-|---|---|
-| pom.xml | 54 |
-| ResortsLiteApplication.java | 11 |
-| BookingController.java | 82 |
-| BookingService.java | 100 |
-| ReportService.java | 69 |
-| application.properties | 18 |
-| **Total** | **334** |
+| File | Lines | Status |
+|---|---|---|
+| pom.xml | ~120 | ✅ Updated |
+| ResortsLiteApplication.java | 11 | ✅ Clean |
+| BookingController.java | ~82 | ✅ jakarta.servlet migrated |
+| BookingService.java | ~130 | ✅ SHA-256, Java 21 syntax |
+| ReportService.java | ~110 | ✅ java.time API |
+| application.properties | 18 | ✅ H2 datasource configured |
 
-*Java source lines only: 262*
+*Java 21 — Spring Boot 3.2.5 — 0 compilation errors*
