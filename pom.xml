@@ -11,6 +11,18 @@
         <version>2.7.18</version>
     </parent>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>2.25.40</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <groupId>com.demo</groupId>
     <artifactId>resortsLite</artifactId>
     <version>1.0.0</version>
@@ -46,6 +58,47 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <!-- AWS SDK v2 S3 — replaces local FileWriter writes with durable S3 storage -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sts</artifactId>
+        </dependency>
+        <!-- AWS Secrets Manager SDK — retrieves DB credentials at runtime (cr-java-0069 fix) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>secretsmanager</artifactId>
+        </dependency>
+        <!-- AWS SSM SDK — retrieves environment-specific URLs from Parameter Store (cr-java-0071 fix) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>ssm</artifactId>
+        </dependency>
+        <!-- cr-java-0090 FIX: Amazon Cognito Identity Provider SDK — replaces file-based
+             authentication credential and user-data storage with Amazon Cognito User Pools.
+             Guest identities are registered in Cognito at booking creation time, providing
+             centralised, encrypted, and auditable authentication with built-in user lifecycle
+             management. Version is managed by the AWS SDK BOM imported above. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>cognitoidentityprovider</artifactId>
+        </dependency>
+        <!-- cr-java-0065 FIX: Spring Session Data Redis — transparently backs HttpSession
+             with Amazon ElastiCache for Redis, enabling stateless, horizontally-scalable
+             application instances.  All session attributes are stored in the shared Redis
+             cluster so any instance behind the AWS ALB can serve any request. -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+        <!-- Lettuce is the non-blocking Redis client used by Spring Session / Spring Data Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
     </dependencies>
 
