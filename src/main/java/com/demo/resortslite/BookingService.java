@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
@@ -39,9 +40,10 @@ public class BookingService {
                 + "', '" + checkIn + "', '" + checkOut + "')";                     // sql-inject-001
         jdbcTemplate.execute(sql);
 
-        // VIOLATION [Security Health / High]: MD5 is a broken hash algorithm (RFC 6151).
-        // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
-        String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
+        // FIXED JAVA8_TO_25_CRYPTOGRAPHY_AND_TLS: Replaced MD5 (broken, RFC 6151) with SHA-256.
+        // Also fixed JAVA8_TO_25_UTF8_DEFAULT_CHARSET: Explicitly pass StandardCharsets.UTF_8
+        // to getBytes() instead of relying on the platform default charset.
+        String confirmCode = sha256Hash(bookingId + guestName);
 
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
@@ -103,10 +105,17 @@ public class BookingService {
         return "Report generation triggered for: " + month + " via " + PAYMENT_API;
     }
 
-    private String md5Hash(String input) { // sec-weak-hash-001
+    /**
+     * FIXED JAVA8_TO_25_CRYPTOGRAPHY_AND_TLS: Replaced broken md5Hash with sha256Hash.
+     * MD5 is cryptographically broken (RFC 6151) and disabled in Java 25 security policy
+     * for security-sensitive operations.
+     * FIXED JAVA8_TO_25_UTF8_DEFAULT_CHARSET: Explicitly specifies StandardCharsets.UTF_8
+     * for getBytes() — Java 18+ uses UTF-8 as default but explicit charset is best practice.
+     */
+    private String sha256Hash(String input) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5"); // sec-weak-hash-001
-            byte[] hash = md.digest(input.getBytes());
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
             for (byte b : hash) { sb.append(String.format("%02x", b)); }
             return sb.toString();
