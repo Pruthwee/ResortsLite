@@ -5,52 +5,120 @@
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+        JAVA8_TO_25_SPRING_BOOT_BASELINE: Upgraded Spring Boot parent from 2.7.15 to 3.3.4.
+        Spring Boot 3.x requires Java 17+ and fully adopts the jakarta.* namespace (Jakarta EE 10).
+        This resolves the "Spring Boot 2.7.18 Incompatible with Java 25" critical issue.
+    -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.18</version>
+        <version>3.3.4</version>
+        <relativePath/>
     </parent>
 
     <groupId>com.demo</groupId>
     <artifactId>resortsLite</artifactId>
     <version>1.0.0</version>
     <name>ResortsLite</name>
-    <description>Legacy resort booking demo — Java 8 / Spring Boot 2.7.x</description>
+    <description>Resort booking demo — Java 25 / Spring Boot 3.3.x</description>
 
     <properties>
-        <java.version>1.8</java.version>
+        <!--
+            JAVA8_TO_25_BUILD_TOOLCHAIN: Updated java.version from 1.8 to 25.
+            Spring Boot parent uses this property to configure maven-compiler-plugin
+            source/target/release automatically.
+        -->
+        <java.version>25</java.version>
     </properties>
 
     <dependencies>
+        <!-- Spring Boot Web (includes spring-webmvc, jackson, tomcat-embed, jakarta.servlet-api) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
+        <!-- Spring Boot JDBC (includes HikariCP, spring-jdbc) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <!-- SECURITY VIOLATION: log4j 2.14.1 has critical CVE-2021-44228 (Log4Shell) -->
+
+        <!--
+            JAVA8_TO_25_DEPENDENCY_UPDATE: Updated MySQL connector from deprecated
+            mysql:mysql-connector-java (8.0.33) to com.mysql:mysql-connector-j (8.2.0).
+            The artifact was renamed in 8.0.31+; the new coordinates are required for
+            Java 25 compatibility and better Jakarta EE support.
+        -->
         <dependency>
-            <groupId>org.apache.logging.log4j</groupId>
-            <artifactId>log4j-core</artifactId>
-            <version>2.14.1</version>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.2.0</version>
+            <scope>runtime</scope>
         </dependency>
-        <!-- SECURITY VIOLATION: commons-collections 3.2.1 has CVE-2015-6420 (RCE) -->
-        <dependency>
-            <groupId>commons-collections</groupId>
-            <artifactId>commons-collections</artifactId>
-            <version>3.2.1</version>
-        </dependency>
+
+        <!--
+            H2 in-memory database for development/testing.
+            Version managed by Spring Boot parent BOM.
+        -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!--
+            JAVA8_TO_25_SECURITY_FIX: Removed log4j-core 2.14.1 (CVE-2021-44228 — Log4Shell).
+            Spring Boot 3.x uses Logback via spring-boot-starter-logging by default;
+            log4j-core is not on the classpath unless explicitly added.
+
+            JAVA8_TO_25_SECURITY_FIX: Replaced commons-collections 3.2.1 (CVE-2015-6420)
+            with commons-collections4 4.4, which is not affected by the deserialization
+            gadget chain vulnerability present in the 3.x line.
+        -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+            <version>4.4</version>
+        </dependency>
+
+        <!-- Spring Boot Test (JUnit 5 / Jupiter included via spring-boot-test) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!--
+                JAVA8_TO_25_BUILD_TOOLCHAIN: Explicitly configure maven-compiler-plugin 3.13.0
+                with <release>25</release> instead of the legacy <source>/<target>1.8 pair.
+                Using <release> enforces the correct bootstrap classpath and API surface.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>25</release>
+                </configuration>
+            </plugin>
+
+            <!--
+                JAVA8_TO_25_BUILD_TOOLCHAIN: Pin maven-surefire-plugin to 3.3.1.
+                Versions below 2.22.0 do not support JUnit 5 (Jupiter); versions below
+                3.x have known issues with Java 17+ module-path scanning.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.3.1</version>
+            </plugin>
+
+            <!-- Spring Boot repackage goal — version managed by parent BOM -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
