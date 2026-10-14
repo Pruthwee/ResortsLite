@@ -82,7 +82,7 @@
 
     <build>
         <plugins>
-            <!-- maven-compiler-plugin 3.13.0 — supports --release 25
+            <!-- maven-compiler-plugin 3.13.0 - supports -release 25
                  (JAVA8_TO_25_BUILD_TOOLCHAIN, JAVA8_TO_25_MAVEN_PLUGIN_UPDATES) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
