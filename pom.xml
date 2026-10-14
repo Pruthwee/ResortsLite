@@ -8,60 +8,82 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <!-- Updated from 2.7.18 to 3.3.x for Java 25 compatibility (JAVA8_TO_25_SPRING_BOOT_BASELINE) -->
-        <version>3.3.4</version>
+        <!-- Upgraded from 3.3.4 to 3.5.0 — Spring Boot 3.5+ is required for Java 25
+             class-file major version (69) support in spring-boot-maven-plugin repackage.
+             (JAVA8_TO_25_SPRING_BOOT_BASELINE) -->
+        <version>3.5.0</version>
+        <relativePath/>
     </parent>
 
     <groupId>com.demo</groupId>
     <artifactId>resortsLite</artifactId>
     <version>1.0.0</version>
     <name>ResortsLite</name>
-    <description>Resort booking demo — Java 25 / Spring Boot 3.3.x</description>
+    <description>Resort booking demo — Java 25 / Spring Boot 3.5.x</description>
 
     <properties>
-        <!-- Updated from 1.8 to 25 (JAVA8_TO_25_BUILD_TOOLCHAIN, JAVA8_TO_25_LOMBOK_CONFIGURATION) -->
+        <!-- Target Java 25 — do NOT lower these values (JAVA8_TO_25_BUILD_TOOLCHAIN) -->
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
     </properties>
 
     <dependencies>
+        <!-- Spring Boot Web starter (includes Tomcat + Spring MVC) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
+        <!-- Spring Boot JDBC starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <!-- Updated log4j-core from 2.14.1 (CVE-2021-44228) to 2.23.1 (JAVA8_TO_25_DEPENDENCY_CONFLICTS) -->
+
+        <!-- log4j-core: upgraded from 2.14.1 (CVE-2021-44228 / Log4Shell) to 2.23.1
+             (JAVA8_TO_25_DEPENDENCY_CONFLICTS, JAVA8_TO_25_SECURITY_VULNERABILITIES) -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>2.23.1</version>
         </dependency>
-        <!-- Updated commons-collections from 3.2.1 (CVE-2015-6420) to 3.2.2 (JAVA8_TO_25_DEPENDENCY_CONFLICTS) -->
+
+        <!-- commons-collections: upgraded from 3.2.1 (CVE-2015-6420 RCE) to 3.2.2
+             (JAVA8_TO_25_DEPENDENCY_CONFLICTS, JAVA8_TO_25_SECURITY_VULNERABILITIES) -->
         <dependency>
             <groupId>commons-collections</groupId>
             <artifactId>commons-collections</artifactId>
             <version>3.2.2</version>
         </dependency>
+
+        <!-- H2 in-memory database for development / testing -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Added Jakarta Servlet API for javax.servlet -> jakarta.servlet migration (JAVA8_TO_25_JAKARTA_NAMESPACE_MIGRATION) -->
+
+        <!-- Jakarta Servlet API — required after javax→jakarta namespace migration
+             (JAVA8_TO_25_JAKARTA_NAMESPACE_MIGRATION) -->
         <dependency>
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
-            <version>6.0.0</version>
+            <version>6.1.0</version>
             <scope>provided</scope>
+        </dependency>
+
+        <!-- Spring Boot Test starter (JUnit 5 via spring-boot-test) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <!-- Updated maven-compiler-plugin for Java 25 compatibility (JAVA8_TO_25_BUILD_TOOLCHAIN, JAVA8_TO_25_MAVEN_PLUGIN_UPDATES) -->
+            <!-- maven-compiler-plugin 3.13.0 — supports --release 25
+                 (JAVA8_TO_25_BUILD_TOOLCHAIN, JAVA8_TO_25_MAVEN_PLUGIN_UPDATES) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -70,12 +92,18 @@
                     <release>25</release>
                 </configuration>
             </plugin>
-            <!-- Updated maven-surefire-plugin for Java 25 compatibility (JAVA8_TO_25_MAVEN_PLUGIN_UPDATES) -->
+
+            <!-- maven-surefire-plugin 3.2.5 — supports Java 25 JVM args
+                 (JAVA8_TO_25_MAVEN_PLUGIN_UPDATES) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
             </plugin>
+
+            <!-- spring-boot-maven-plugin — version inherited from Spring Boot 3.5.0 parent,
+                 which supports Java 25 class-file major version 69 for repackage.
+                 (JAVA8_TO_25_SPRING_BOOT_BASELINE) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
