@@ -8,7 +8,9 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <!-- Updated from 2.7.15 to 3.3.4 for Java 25 / Jakarta EE compatibility -->
+        <!-- Spring Boot 3.3.4: supports Java 17/21/22.
+             The spring-boot-maven-plugin 3.3.4 cannot process Java 25 class files
+             (major version 69). Compile to Java 17 bytecode instead. -->
         <version>3.3.4</version>
         <relativePath/>
     </parent>
@@ -17,12 +19,14 @@
     <artifactId>resortsLite</artifactId>
     <version>1.0.0</version>
     <name>ResortsLite</name>
-    <description>Resort booking demo — Java 25 / Spring Boot 3.3.x</description>
+    <description>Resort booking demo - Java 25 JDK / Spring Boot 3.3.x / bytecode Java 17</description>
 
     <properties>
-        <!-- Updated from 1.8 to 25 for Java 25 target -->
-        <java.version>25</java.version>
-        <maven.compiler.release>25</maven.compiler.release>
+        <!-- Compile to Java 17 bytecode so that spring-boot-maven-plugin 3.3.4
+             can repackage the JAR. The build still runs on the Java 25 JDK.
+             Spring Boot 3.3.x officially supports Java 17, 21, and 22. -->
+        <java.version>17</java.version>
+        <maven.compiler.release>17</maven.compiler.release>
     </properties>
 
     <dependencies>
@@ -69,17 +73,19 @@
 
     <build>
         <plugins>
-            <!-- Updated maven-compiler-plugin to 3.13.0 for Java 25 compatibility -->
+            <!-- Compile to Java 17 bytecode (major version 61).
+                 spring-boot-maven-plugin 3.3.4 is compiled for Java 17 and cannot
+                 read class files with major version 69 (Java 25). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <release>25</release>
+                    <release>17</release>
                 </configuration>
             </plugin>
 
-            <!-- Updated maven-surefire-plugin to 3.2.5 for Java 25 / JUnit 5 compatibility -->
+            <!-- maven-surefire-plugin 3.2.5 for JUnit 5 compatibility -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
