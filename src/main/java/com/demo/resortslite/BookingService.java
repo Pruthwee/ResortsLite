@@ -105,7 +105,7 @@ public class BookingService {
 
     private String md5Hash(String input) { // sec-weak-hash-001
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5"); // sec-weak-hash-001
+            MessageDigest md = MessageDigest.getInstance("SHA-256"); // sec-weak-hash-001
             byte[] hash = md.digest(input.getBytes());
             StringBuilder sb = new StringBuilder();
             for (byte b : hash) { sb.append(String.format("%02x", b)); }
