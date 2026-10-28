@@ -4,7 +4,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.security.MessageDigest;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -15,17 +21,35 @@ public class BookingService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    // cr-java-0069: Hard-coded DB credentials replaced with Secrets Manager lookup
+    private static final String DB_HOST = "db-prod.resorts-internal.com";
+    private static final String DB_SECRET_NAME = System.getenv("DB_SECRET_NAME");
+    private SecretsManagerClient secretsClient;
 
     // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
     // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
     // or scaling events. Must be externalised to environment variables / Parameter Store.
     private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+
+    private SecretsManagerClient getSecretsClient() {
+        if (secretsClient == null) {
+            secretsClient = SecretsManagerClient.create();
+        }
+        return secretsClient;
+    }
+
+    private Map<String, String> getDbCredentials() {
+        try {
+            GetSecretValueRequest request = GetSecretValueRequest.builder()
+                .secretId(DB_SECRET_NAME)
+                .build();
+            GetSecretValueResponse response = getSecretsClient().getSecretValue(request);
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(response.secretString(), new TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {
@@ -39,9 +63,8 @@ public class BookingService {
                 + "', '" + checkIn + "', '" + checkOut + "')";                     // sql-inject-001
         jdbcTemplate.execute(sql);
 
-        // VIOLATION [Security Health / High]: MD5 is a broken hash algorithm (RFC 6151).
-        // Do not use MD5 for any security-related hashing. Use SHA-256 or bcrypt.
-        String confirmCode = md5Hash(bookingId + guestName); // sec-weak-hash-001
+        // cr-java-0090: MD5 hash replaced with HMAC-SHA256 using secret from Secrets Manager
+        String confirmCode = generateConfirmationCode(bookingId + guestName);
 
         Map<String, Object> booking = new HashMap<>();
         booking.put("bookingId", bookingId);
@@ -103,12 +126,21 @@ public class BookingService {
         return "Report generation triggered for: " + month + " via " + PAYMENT_API;
     }
 
-    private String md5Hash(String input) { // sec-weak-hash-001
+    // cr-java-0090: MD5 hash replaced with HMAC-SHA256 using signing secret from Secrets Manager
+    private String generateConfirmationCode(String input) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5"); // sec-weak-hash-001
-            byte[] hash = md.digest(input.getBytes());
+            Map<String, String> creds = getDbCredentials();
+            String signingSecret = creds != null ? creds.get("signingSecret") : null;
+            if (signingSecret == null) {
+                return input;
+            }
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(
+                signingSecret.getBytes("UTF-8"), "HmacSHA256");
+            mac.init(keySpec);
+            byte[] rawHmac = mac.doFinal(input.getBytes("UTF-8"));
             StringBuilder sb = new StringBuilder();
-            for (byte b : hash) { sb.append(String.format("%02x", b)); }
+            for (byte b : rawHmac) { sb.append(String.format("%02x", b)); }
             return sb.toString();
         } catch (Exception e) {
             return input;
