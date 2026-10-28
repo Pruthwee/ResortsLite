@@ -1,0 +1,94 @@
+{
+  "executiveSummary": {
+    "updatesCompleted": 6,
+    "updatesFailed": 0,
+    "filesModified": 3,
+    "successRate": 100,
+    "description": "Upgraded ResortsLite from Java 1.8 / Spring Boot 2.7.18 to Java 21 / Spring Boot 3.3.13. Updated the Spring Boot parent, the java.version property, migrated javax.servlet to jakarta.servlet, and fixed two CVE-vulnerable dependency versions (log4j-core and commons-collections). The application compiles and verifies successfully on Java 21 (major version 65)."
+  },
+  "fixedUpdates": [
+    {
+      "title": "Upgrade Spring Boot parent from 2.7.18 to 3.3.13 for Java 21 support",
+      "filePath": "pom.xml (Line 11)",
+      "severity": "Critical",
+      "category": "framework-compatibility",
+      "impact": "Spring Boot 2.7.x uses Spring Framework 5.3.x which is incompatible with Java 21 due to JDK internal API access blocked by the module system. Spring Boot 3.3.13 uses Spring Framework 6.1+ with full Java 21 support.",
+      "originalCode": "<version>2.7.18</version>",
+      "fixedCode": "<version>3.3.13</version>",
+      "issueIds": ["issue-1"]
+    },
+    {
+      "title": "Update java.version property from 1.8 to 21",
+      "filePath": "pom.xml (Line 21)",
+      "severity": "Medium",
+      "category": "build-configuration",
+      "impact": "The Maven build now targets Java 21 via the java.version property, which Spring Boot 3.3.x parent uses to set maven.compiler.release. Java 8 source level is incompatible with Spring Framework 6.x Java 17+ APIs.",
+      "originalCode": "<java.version>1.8</java.version>",
+      "fixedCode": "<java.version>21</java.version>",
+      "issueIds": ["issue-3"]
+    },
+    {
+      "title": "Migrate javax.servlet.http.HttpSession to jakarta.servlet.http.HttpSession",
+      "filePath": "src/main/java/com/demo/resortslite/BookingController.java (Line 6)",
+      "severity": "High",
+      "category": "jakarta-migration",
+      "impact": "Spring Boot 3.x uses Tomcat 10+ which migrated from javax.servlet to jakarta.servlet package namespace. The javax.servlet import caused a compilation error after the Spring Boot upgrade.",
+      "originalCode": "import javax.servlet.http.HttpSession;",
+      "fixedCode": "import jakarta.servlet.http.HttpSession;",
+      "issueIds": ["issue-2"]
+    },
+    {
+      "title": "Upgrade log4j-core from 2.14.1 to 2.23.1 to fix CVE-2021-44228 (Log4Shell)",
+      "filePath": "pom.xml (Line 36)",
+      "severity": "High",
+      "category": "dependency-security",
+      "impact": "Log4j 2.14.1 contains the critical Log4Shell vulnerability (CVE-2021-44228) allowing remote code execution. Version 2.23.1 also provides Java 21 compatibility.",
+      "originalCode": "<version>2.14.1</version>",
+      "fixedCode": "<version>2.23.1</version>",
+      "issueIds": []
+    },
+    {
+      "title": "Upgrade commons-collections from 3.2.1 to 3.2.2 to fix CVE-2015-6420",
+      "filePath": "pom.xml (Line 43)",
+      "severity": "High",
+      "category": "dependency-security",
+      "impact": "Commons-collections 3.2.1 contains CVE-2015-6420 allowing remote code execution via deserialization. Version 3.2.2 is the latest 3.x release with the fix, keeping the same artifact coordinates.",
+      "originalCode": "<version>3.2.1</version>",
+      "fixedCode": "<version>3.2.2</version>",
+      "issueIds": []
+    },
+    {
+      "title": "Update project description to reflect Java 21 / Spring Boot 3.3.x",
+      "filePath": "pom.xml (Line 16)",
+      "severity": "Low",
+      "category": "build-configuration",
+      "impact": "The pom description now accurately reflects the upgraded Java and Spring Boot versions.",
+      "originalCode": "<description>Legacy resort booking demo — Java 8 / Spring Boot 2.7.x</description>",
+      "fixedCode": "<description>Resort booking demo — Java 21 / Spring Boot 3.3.x</description>",
+      "issueIds": []
+    }
+  ],
+  "failedUpdates": [],
+  "applicationInfo": {
+    "applicationName": "ResortsLite-upgrade",
+    "applicationOwner": "",
+    "metadata": {
+      "techStack": ["Java", "Spring Boot", "Maven"],
+      "components": 1,
+      "currentVersion": "Java 1.8",
+      "targetVersion": "Java 21"
+    }
+  },
+  "reportMetadata": {
+    "reportType": "Post-Transformation Report: M-Upgrade",
+    "description": "Upgraded ResortsLite from Java 1.8/Spring Boot 2.7.18 to Java 21/Spring Boot 3.3.13. Build compiles and verifies successfully on Java 21 (major version 65). No tests exist in the project (src/test directory absent), so verify runs only the build lifecycle.",
+    "status": "Success",
+    "start": "2026-10-28T05:33:00Z",
+    "end": "2026-10-28T05:34:30Z"
+  },
+  "postTransformationGuidelines": [
+    "Spring Boot 3.x migrated from javax.servlet to jakarta.servlet namespace. The HttpSession import in BookingController was updated accordingly. Any future code referencing javax.* (servlet, persistence, validation) must use jakarta.* equivalents.",
+    "The project uses H2 in-memory database (com.h2database:h2) which is managed by the Spring Boot 3.3.13 parent and automatically upgraded to H2 2.2.x. No stand-in or additional database was introduced.",
+    "The project has no test sources (no src/test directory), so no test framework migration was needed. If tests are added later, Spring Boot 3.x uses JUnit 5 (Jupiter) by default."
+  ]
+}
