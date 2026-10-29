@@ -4,6 +4,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+
+import javax.annotation.PreDestroy;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,8 +28,47 @@ public class BookingService {
     // If this repo is pushed to GitHub (even private), credentials are permanently exposed
     // in git history. AWS Secrets Manager or Parameter Store must be used instead.
     private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    // The database user and password are read from AWS Secrets Manager (secret named by
+    // DB_SECRET_NAME, JSON with "username" and "password"), lazily on first use.
+    private SecretsManagerClient secretsClient;
+
+    private synchronized SecretsManagerClient secrets() {
+        if (secretsClient == null) {
+            secretsClient = SecretsManagerClient.create();
+        }
+        return secretsClient;
+    }
+
+    private JsonNode readDbSecret() {
+        String secretName = System.getenv("DB_SECRET_NAME");
+        if (secretName == null || secretName.isEmpty()) {
+            return null;
+        }
+        try {
+            GetSecretValueResponse response = secrets().getSecretValue(
+                    GetSecretValueRequest.builder().secretId(secretName).build());
+            return new ObjectMapper().readTree(response.secretString());
+        } catch (SdkException | IOException e) {
+            return null;
+        }
+    }
+
+    private String dbUser() {
+        JsonNode secret = readDbSecret();
+        return secret == null || !secret.hasNonNull("username") ? null : secret.get("username").asText();
+    }
+
+    private String dbPass() {
+        JsonNode secret = readDbSecret();
+        return secret == null || !secret.hasNonNull("password") ? null : secret.get("password").asText();
+    }
+
+    @PreDestroy
+    void closeSecretsClient() {
+        if (secretsClient != null) {
+            secretsClient.close();
+        }
+    }
 
     // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
     // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,

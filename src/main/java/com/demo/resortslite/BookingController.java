@@ -1,9 +1,19 @@
 package com.demo.resortslite;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.ssm.SsmClient;
+import software.amazon.awssdk.services.ssm.model.GetParameterRequest;
 
+import javax.annotation.PreDestroy;
 import javax.servlet.http.HttpSession;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,9 +24,20 @@ public class BookingController {
     @Autowired
     private BookingService bookingService;
 
-    // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    // Booking cache lives in Amazon ElastiCache for Redis, shared by all instances, every entry with a TTL.
+    private static final String BOOKING_CACHE_PREFIX = "booking:";
+    private static final Duration BOOKING_CACHE_TTL = Duration.ofSeconds(3600);
+
+    private static final String INVENTORY_URL_PARAMETER = "inventory-availability-url";
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @Value("${app.inventory.availability.url}")
+    private String inventoryAvailabilityUrl;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private SsmClient ssmClient;
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -34,7 +55,12 @@ public class BookingController {
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        try {
+            redisTemplate.opsForValue().set(BOOKING_CACHE_PREFIX + booking.get("bookingId"),
+                    objectMapper.writeValueAsString(booking), BOOKING_CACHE_TTL);
+        } catch (DataAccessException | JsonProcessingException e) {
+            // the cache is best effort: a booking is still confirmed when the cache cannot be reached
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
@@ -63,7 +89,7 @@ public class BookingController {
         // VIOLATION cr-java-0088 [Cloud Compatibility / Mandatory]: Plain HTTP call to
         // internal inventory service. AWS ALB, WAF, and Well-Architected security review
         // enforce HTTPS. This call will be blocked or flagged in a cloud-native setup.
-        String inventoryUrl = "http://inventory-service.internal:8081/rooms/available"; // cr-java-0088
+        String inventoryUrl = resolveUrl(INVENTORY_URL_PARAMETER, inventoryAvailabilityUrl);
 
         Map<String, Object> response = new HashMap<>();
         response.put("roomType", roomType);
@@ -83,5 +109,39 @@ public class BookingController {
         response.put("reportPath", reportPath);
         response.put("message", bookingService.generateReport(month));
         return response;
+    }
+
+    private synchronized SsmClient ssm() {
+        if (ssmClient == null) {
+            ssmClient = SsmClient.create();
+        }
+        return ssmClient;
+    }
+
+    /**
+     * Reads the whole URL from Parameter Store under APP_PARAMETER_PATH; when the path is not set
+     * or the call fails, the URL from application.properties is used, as before.
+     */
+    private String resolveUrl(String parameterName, String fallback) {
+        String path = System.getenv("APP_PARAMETER_PATH");
+        if (path != null && !path.isEmpty()) {
+            try {
+                String name = path.endsWith("/") ? path + parameterName : path + "/" + parameterName;
+                return ssm().getParameter(GetParameterRequest.builder()
+                        .name(name)
+                        .withDecryption(true)
+                        .build()).parameter().value();
+            } catch (SdkException e) {
+                // fall through to the configured URL
+            }
+        }
+        return fallback;
+    }
+
+    @PreDestroy
+    void closeSsmClient() {
+        if (ssmClient != null) {
+            ssmClient.close();
+        }
     }
 }
