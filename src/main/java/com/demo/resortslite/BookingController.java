@@ -1,9 +1,19 @@
 package com.demo.resortslite;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.ssm.SsmClient;
+import software.amazon.awssdk.services.ssm.model.GetParameterRequest;
 
+import javax.annotation.PreDestroy;
 import javax.servlet.http.HttpSession;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,9 +24,21 @@ public class BookingController {
     @Autowired
     private BookingService bookingService;
 
-    // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    // Booking cache lives in Amazon ElastiCache for Redis, shared by all instances, with a TTL.
+    private static final String BOOKING_CACHE_PREFIX = "booking:";
+    private static final Duration BOOKING_CACHE_TTL = Duration.ofHours(1);
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    // Name of the Parameter Store parameter (under APP_PARAMETER_PATH) holding the inventory URL.
+    private static final String INVENTORY_URL_PARAMETER = "inventory-availability-url";
+
+    @Value("${app.inventory.availability.url}")
+    private String inventoryAvailabilityUrl;
+
+    // Built lazily on first use, closed on shutdown.
+    private SsmClient ssmClient;
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -34,7 +56,7 @@ public class BookingController {
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        cacheBooking((String) booking.get("bookingId"), booking);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
@@ -63,7 +85,24 @@ public class BookingController {
         // VIOLATION cr-java-0088 [Cloud Compatibility / Mandatory]: Plain HTTP call to
         // internal inventory service. AWS ALB, WAF, and Well-Architected security review
         // enforce HTTPS. This call will be blocked or flagged in a cloud-native setup.
-        String inventoryUrl = "http://inventory-service.internal:8081/rooms/available"; // cr-java-0088
+        String inventoryUrl = inventoryAvailabilityUrl;
+        try {
+            String parameterPath = System.getenv("APP_PARAMETER_PATH");
+            if (parameterPath != null && !parameterPath.isEmpty()) {
+                if (!parameterPath.endsWith("/")) {
+                    parameterPath = parameterPath + "/";
+                }
+                if (ssmClient == null) {
+                    ssmClient = SsmClient.create();
+                }
+                inventoryUrl = ssmClient.getParameter(GetParameterRequest.builder()
+                        .name(parameterPath + INVENTORY_URL_PARAMETER)
+                        .withDecryption(true)
+                        .build()).parameter().value();
+            }
+        } catch (SdkException e) {
+            inventoryUrl = inventoryAvailabilityUrl;
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("roomType", roomType);
@@ -83,5 +122,21 @@ public class BookingController {
         response.put("reportPath", reportPath);
         response.put("message", bookingService.generateReport(month));
         return response;
+    }
+
+    private void cacheBooking(String bookingId, Map<String, Object> booking) {
+        try {
+            redisTemplate.opsForValue().set(BOOKING_CACHE_PREFIX + bookingId,
+                    new ObjectMapper().writeValueAsString(booking), BOOKING_CACHE_TTL);
+        } catch (DataAccessException | JsonProcessingException e) {
+            // the cache is best effort, as the in-memory map never failed the request
+        }
+    }
+
+    @PreDestroy
+    void closeSsmClient() {
+        if (ssmClient != null) {
+            ssmClient.close();
+        }
     }
 }
