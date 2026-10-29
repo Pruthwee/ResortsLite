@@ -1,0 +1,27 @@
+services:
+  resortslite:
+    image: resortslite:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      APP_PORT: "8080"
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-default}"
+      # External services are reached through the environment (no Redis is started here)
+      REDIS_HOST: "${REDIS_HOST:?set REDIS_HOST}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_SSL: "${REDIS_SSL:-false}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?set REDIS_PASSWORD}"
+      PAYMENT_API_URL: "${PAYMENT_API_URL:?set PAYMENT_API_URL}"
+      REPORT_PATH: "/app/reports"
+      BACKUP_PATH: "/app/backups"
+    volumes:
+      - resortslite-reports:/app/reports
+      - resortslite-backups:/app/backups
+    restart: unless-stopped
+
+volumes:
+  resortslite-reports:
+  resortslite-backups:
