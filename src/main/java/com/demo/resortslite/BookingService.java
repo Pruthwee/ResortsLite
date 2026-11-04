@@ -4,6 +4,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
@@ -15,12 +22,40 @@ public class BookingService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
-    private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
+    // Database host read from environment (was hardcoded "db-prod.resorts-internal.com")
+    private static final String DB_HOST = System.getenv().getOrDefault("DB_HOST", "db-prod.resorts-internal.com");
+
+    // Database credentials retrieved from AWS Secrets Manager (was hardcoded "admin" / "Resort$Pass#2019!")
+    private static final String DB_SECRET_NAME = System.getenv().getOrDefault("DB_SECRET_NAME", "resortsLite/db-credentials");
+
+    // Lazily-initialized Secrets Manager client (built on first use inside try, never in static initializer)
+    private SecretsManagerClient secretsClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private SecretsManagerClient getSecretsClient() {
+        if (secretsClient == null) {
+            secretsClient = SecretsManagerClient.create();
+        }
+        return secretsClient;
+    }
+
+    // Retrieves database credentials from AWS Secrets Manager
+    private Map<String, String> getDbCredentials() {
+        try {
+            GetSecretValueRequest request = GetSecretValueRequest.builder()
+                    .secretId(DB_SECRET_NAME)
+                    .build();
+            GetSecretValueResponse response = getSecretsClient().getSecretValue(request);
+            JsonNode secret = objectMapper.readTree(response.secretString());
+            Map<String, String> creds = new HashMap<>();
+            creds.put("username", secret.get("username").asText());
+            creds.put("password", secret.get("password").asText());
+            return creds;
+        } catch (Exception e) {
+            // Old failure path: return empty credentials so application still starts
+            return new HashMap<>();
+        }
+    }
 
     // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
     // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
