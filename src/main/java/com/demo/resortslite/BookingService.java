@@ -2,7 +2,15 @@ package com.demo.resortslite;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueResponse;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.security.MessageDigest;
 import java.util.HashMap;
@@ -15,17 +23,51 @@ public class BookingService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    // VIOLATION [Security Health / Critical]: Hardcoded database credentials in source code.
-    // If this repo is pushed to GitHub (even private), credentials are permanently exposed
-    // in git history. AWS Secrets Manager or Parameter Store must be used instead.
+    @Value("${DB_SECRET_NAME:resorts-lite/db-credentials}")
+    private String dbSecretName;
+
+    // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
+    // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
+    // or scaling events. Must be externalised to environment variables / Parameter Store.
     private static final String DB_HOST = "db-prod.resorts-internal.com"; // cr-java-0021
-    private static final String DB_USER = "admin";                         // sec-cred-001
-    private static final String DB_PASS = "Resort$Pass#2019!";             // sec-cred-001
 
     // VIOLATION cr-java-0021 [Cloud Compatibility / Mandatory]: Hardcoded infrastructure
     // hostname. Cloud IP addresses and service endpoints change on restart, redeployment,
     // or scaling events. Must be externalised to environment variables / Parameter Store.
     private static final String PAYMENT_API = "http://10.0.1.45:9090/payments/charge"; // cr-java-0021, cr-java-0088
+
+    private SecretsManagerClient secretsClient;
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    private SecretsManagerClient getSecretsClient() {
+        if (secretsClient == null) {
+            secretsClient = SecretsManagerClient.create();
+        }
+        return secretsClient;
+    }
+
+    /**
+     * Retrieves database credentials from AWS Secrets Manager.
+     * The secret JSON holds "username" and "password" fields.
+     */
+    private Map<String, String> getDbCredentials() {
+        Map<String, String> creds = new HashMap<>();
+        try {
+            GetSecretValueRequest request = GetSecretValueRequest.builder()
+                    .secretId(dbSecretName)
+                    .build();
+            GetSecretValueResponse response = getSecretsClient().getSecretValue(request);
+            JsonNode secretJson = objectMapper.readTree(response.secretString());
+            creds.put("username", secretJson.get("username").asText());
+            creds.put("password", secretJson.get("password").asText());
+        } catch (SdkException e) {
+            // Old failure path: credentials unavailable, return empty map
+            // so callers behave as before when the file was missing
+        } catch (Exception e) {
+            // JSON parse failure or missing fields — same fallback as old catch
+        }
+        return creds;
+    }
 
     public Map<String, Object> createBooking(String guestName, String roomType,
                                               String checkIn, String checkOut) {

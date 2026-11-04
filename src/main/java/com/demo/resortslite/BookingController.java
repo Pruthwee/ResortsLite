@@ -2,6 +2,10 @@ package com.demo.resortslite;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.servlet.http.HttpSession;
 import java.util.HashMap;
@@ -16,7 +20,19 @@ public class BookingController {
 
     // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
     // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    // Replaced with ElastiCache Redis (Jedis) with TTL (cr-java-0067)
+    private static final int CACHE_TTL_SECONDS = 3600;
+    private JedisPool jedisPool;
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    private JedisPool getJedisPool() {
+        if (jedisPool == null) {
+            String redisEndpoint = System.getenv().getOrDefault("ELASTICACHE_ENDPOINT", "localhost");
+            int redisPort = Integer.parseInt(System.getenv().getOrDefault("REDIS_PORT", "6379"));
+            jedisPool = new JedisPool(new JedisPoolConfig(), redisEndpoint, redisPort);
+        }
+        return jedisPool;
+    }
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -31,10 +47,19 @@ public class BookingController {
         // VIOLATION cr-java-0065 [Cloud Compatibility / Mandatory]: Booking state stored in
         // HTTP session memory. AWS ALB distributes requests across EC2 instances — session
         // data on instance A is invisible to instance B. Auto-scaling and failover breaks.
+        // Remediated via Spring Session Redis (cr-java-0065): HttpSession usage unchanged,
+        // Spring Session transparently externalizes to Redis.
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        // Cache booking in Redis with TTL (cr-java-0067)
+        try (Jedis jedis = getJedisPool().getResource()) {
+            String cacheKey = "booking:" + booking.get("bookingId");
+            String serialized = objectMapper.writeValueAsString(booking);
+            jedis.setex(cacheKey, CACHE_TTL_SECONDS, serialized);
+        } catch (Exception e) {
+            // Cache is best-effort — ignore failures, same as old HashMap.put never threw
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
@@ -49,11 +74,25 @@ public class BookingController {
 
         // VIOLATION cr-java-0065 [Cloud Compatibility / Mandatory]: Reading business state
         // from HTTP session — will return null on any other instance in the cluster.
+        // Remediated via Spring Session Redis (cr-java-0065): HttpSession reads transparently
+        // from Redis across all instances.
         String lastGuest = (String) session.getAttribute("guestName"); // cr-java-0065
 
         Map<String, Object> result = new HashMap<>();
         result.put("bookingId", bookingId);
         result.put("sessionGuest", lastGuest);
+
+        // Read from Redis cache first (cr-java-0067)
+        try (Jedis jedis = getJedisPool().getResource()) {
+            String cacheKey = "booking:" + bookingId;
+            String cached = jedis.get(cacheKey);
+            if (cached != null) {
+                result.put("cached", true);
+            }
+        } catch (Exception e) {
+            // Cache is best-effort — ignore failures
+        }
+
         result.put("details", bookingService.getBookingById(bookingId));
         return result;
     }
