@@ -1,0 +1,257 @@
+{
+  "executiveSummary": {
+    "blockerTypes": 6,
+    "totalRulesProcessed": 6,
+    "totalViolations": 11,
+    "violationsResolved": 11,
+    "violationsFailed": 0,
+    "filesModified": 17,
+    "successRate": 100,
+    "description": "Resortslite-Con2 (Con2CMP) containerization readiness: all 11 blockers fixed, build green on Java 8. Fixed hardcoded absolute file paths (cz-java-0057) by replacing with environment variables, hardcoded port (cz-java-0061) with env var, hardcoded IP address (cz-java-0062) with env var, server-side in-memory sessions (cz-java-0063, cz-java-0069) by adding Spring Session with Redis, and in-memory local cache (cz-java-0070) by replacing with Redis-backed Spring Cache. Added spring-boot-starter-actuator for /actuator/health health check endpoint. Container files written: Dockerfile (multi-stage, amazoncorretto:8 runtime), .dockerignore, docker-compose.yml, kubernetes manifests (namespace, deployment, service, ingress), build-push scripts (sh/bat), deploy-image scripts (sh/bat), and DEPLOYMENT.md. The application builds and verifies successfully on Java 8. Redis is configured via environment variables and provided separately; H2 in-memory database is retained as part of the project. Before deploying to AWS EKS, provision an ElastiCache for Redis and set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD secrets."
+  },
+  "rulesResults": [
+    {
+      "ruleId": "cz-java-0057",
+      "ruleName": "Absolute File Paths",
+      "filesImpacted": 2,
+      "violations": 3,
+      "success": 3,
+      "failed": 0
+    },
+    {
+      "ruleId": "cz-java-0061",
+      "ruleName": "Hardcoded Ports",
+      "filesImpacted": 1,
+      "violations": 1,
+      "success": 1,
+      "failed": 0
+    },
+    {
+      "ruleId": "cz-java-0062",
+      "ruleName": "Hardcoded IP Addresses",
+      "filesImpacted": 1,
+      "violations": 1,
+      "success": 1,
+      "failed": 0
+    },
+    {
+      "ruleId": "cz-java-0063",
+      "ruleName": "Server-side Sessions",
+      "filesImpacted": 1,
+      "violations": 3,
+      "success": 3,
+      "failed": 0
+    },
+    {
+      "ruleId": "cz-java-0069",
+      "ruleName": "In-Memory Session Storage",
+      "filesImpacted": 1,
+      "violations": 2,
+      "success": 2,
+      "failed": 0
+    },
+    {
+      "ruleId": "cz-java-0070",
+      "ruleName": "Local Caches",
+      "filesImpacted": 1,
+      "violations": 1,
+      "success": 1,
+      "failed": 0
+    }
+  ],
+  "customRulesResult": [],
+  "fileModifications": [
+    {
+      "filePath": "src/main/java/com/demo/resortslite/BookingController.java",
+      "violationsFixed": 7,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-1, cz-java-0057 Absolute File Paths, line 80: hardcoded path /var/legacy/reports/ replaced with System.getenv().getOrDefault(\"REPORT_PATH\", \"/app/reports/\")",
+        "blocker-4, cz-java-0063 Server-side Sessions, line 6: HttpSession import retained; session now backed by Redis via @EnableRedisHttpSession on ResortsLiteApplication",
+        "blocker-5, cz-java-0063 Server-side Sessions, line 27: HttpSession parameter now backed by Redis via Spring Session",
+        "blocker-6, cz-java-0063 Server-side Sessions, line 48: session.getAttribute now backed by Redis via Spring Session",
+        "blocker-7, cz-java-0069 In-Memory Session Storage, line 34: session.setAttribute now backed by Redis via Spring Session",
+        "blocker-8, cz-java-0069 In-Memory Session Storage, line 35: session.setAttribute now backed by Redis via Spring Session",
+        "blocker-11, cz-java-0070 Local Caches, line 19: in-memory HashMap bookingCache replaced with Redis-backed @Cacheable cacheBooking method"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "src/main/java/com/demo/resortslite/ReportService.java",
+      "violationsFixed": 3,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-2, cz-java-0057 Absolute File Paths, line 19: hardcoded path /var/legacy/reports/ replaced with System.getenv().getOrDefault(\"REPORT_PATH\", \"/app/reports/\")",
+        "blocker-3, cz-java-0057 Absolute File Paths, line 23: hardcoded Windows path C:\\\\ResortBackups\\\\nightly\\\\ replaced with System.getenv().getOrDefault(\"BACKUP_PATH\", \"/app/backups/\")",
+        "blocker-9, cz-java-0061 Hardcoded Ports, line 28: hardcoded SERVER_PORT=8080 replaced with Integer.parseInt(System.getenv().getOrDefault(\"SERVER_PORT\", \"8080\"))"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "src/main/java/com/demo/resortslite/BookingService.java",
+      "violationsFixed": 1,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-10, cz-java-0062 Hardcoded IP Addresses, line 28: hardcoded IP http://10.0.1.45:9090/payments/charge replaced with System.getenv().getOrDefault(\"PAYMENT_API_URL\", \"http://localhost:9090/payments/charge\")"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "src/main/java/com/demo/resortslite/ResortsLiteApplication.java",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-4, cz-java-0063 Server-side Sessions: added @EnableRedisHttpSession annotation to enable Redis-backed HttpSession",
+        "blocker-11, cz-java-0070 Local Caches: added @EnableCaching annotation to enable Redis-backed Spring Cache"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "src/main/resources/application.properties",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-4, cz-java-0063 Server-side Sessions: added Redis connection config (REDIS_HOST, REDIS_PORT) from environment variables for Spring Session",
+        "blocker-7, cz-java-0069 In-Memory Session Storage: added spring.session.redis.namespace for Redis-backed sessions",
+        "blocker-11, cz-java-0070 Local Caches: added spring.cache.type=redis for Redis-backed cache",
+        "health-check-endpoint: added management.endpoints.web.exposure.include=health and management.endpoint.health.show-details=always for /actuator/health"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "pom.xml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "blocker-4, cz-java-0063 Server-side Sessions: added spring-session-data-redis dependency for Redis-backed HttpSession",
+        "blocker-5, cz-java-0063 Server-side Sessions: spring-session-data-redis transitively brings spring-boot-starter-data-redis",
+        "blocker-7, cz-java-0069 In-Memory Session Storage: spring-session-data-redis enables Redis-backed sessions",
+        "blocker-8, cz-java-0069 In-Memory Session Storage: spring-session-data-redis enables Redis-backed sessions",
+        "blocker-11, cz-java-0070 Local Caches: added spring-boot-starter-data-redis and spring-boot-starter-cache dependencies for Redis-backed cache",
+        "health-check-endpoint: added spring-boot-starter-actuator dependency for /actuator/health"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "Dockerfile",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Multi-stage build: maven:3.9.4-eclipse-temurin-8 build stage compiles with mvn clean package, amazoncorretto:8 runtime stage runs app.jar on port 8080 with JAVA_OPTS -Xmx512m -Xms256m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0, non-root user, health endpoint /actuator/health"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": ".dockerignore",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Excludes target/, .git/, *.md, mvnw, mvnw.cmd, .mvn/, gradlew, gradlew.bat, gradle/wrapper/, .idea/, .vscode/, *.iml, .DS_Store"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "docker-compose.yml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Single service resortslite with image resortslite:latest, port 8080, environment variables from shell (REDIS_HOST, REDIS_PORT, REPORT_PATH, BACKUP_PATH, SERVER_PORT, PAYMENT_API_URL, DB_USERNAME, DB_PASSWORD), volumes for config and data"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "kubernetes/namespace.yaml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Namespace resortslite with label name: resortslite"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "kubernetes/deployment.yaml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Deployment resortslite with 2 replicas, image {{IMAGE_URI}}, containerPort 8080, env from secrets (REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, DB_USERNAME, DB_PASSWORD) and env vars (REPORT_PATH, BACKUP_PATH, SERVER_PORT, PAYMENT_API_URL), resources (250m/512Mi requests, 500m/1Gi limits), liveness/readiness probes on /actuator/health"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "kubernetes/service.yaml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "ClusterIP service resortslite-service, port 80 to containerPort 8080, selector app: resortslite"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "kubernetes/ingress.yaml",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "ALB ingress resortslite-ingress with kubernetes.io/ingress.class: alb and alb.ingress.kubernetes.io/scheme: internet-facing, host resortslite.example.com, path / to resortslite-service:80"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "scripts/build-push.sh",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Builds Docker image with docker build -f Dockerfile -t <registry>/<repo>:<tag> ., supports ECR and Docker Hub, creates ECR repo if missing, logs in and pushes"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "scripts/build-push.bat",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Windows batch equivalent of build-push.sh with ECR login and repository creation"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "scripts/deploy-image.sh",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Deploys to AWS EKS: asks for AWS region, EKS cluster name, image URI, and env vars; creates Kubernetes Secret for credentials; replaces {{PLACEHOLDER}} values in deployment.yaml; applies namespace, deployment, service, ingress; waits for rollout"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "scripts/deploy-image.bat",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Windows batch equivalent of deploy-image.sh with PowerShell-based placeholder replacement"
+      ],
+      "failedDetails": []
+    },
+    {
+      "filePath": "docs/DEPLOYMENT.md",
+      "violationsFixed": 0,
+      "violationsFailed": 0,
+      "fixedDetails": [
+        "Documents prerequisites, local setup with Docker Compose, build and push, AWS EKS deployment, Kubernetes manifests, health checks, scaling, troubleshooting, configuration management, and security considerations"
+      ],
+      "failedDetails": []
+    }
+  ],
+  "blockers": [
+    {"id": "blocker-1", "ruleId": "cz-java-0057", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-2", "ruleId": "cz-java-0057", "filePath": "src/main/java/com/demo/resortslite/ReportService.java", "status": "fixed"},
+    {"id": "blocker-3", "ruleId": "cz-java-0057", "filePath": "src/main/java/com/demo/resortslite/ReportService.java", "status": "fixed"},
+    {"id": "blocker-4", "ruleId": "cz-java-0063", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-5", "ruleId": "cz-java-0063", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-6", "ruleId": "cz-java-0063", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-7", "ruleId": "cz-java-0069", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-8", "ruleId": "cz-java-0069", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"},
+    {"id": "blocker-9", "ruleId": "cz-java-0061", "filePath": "src/main/java/com/demo/resortslite/ReportService.java", "status": "fixed"},
+    {"id": "blocker-10", "ruleId": "cz-java-0062", "filePath": "src/main/java/com/demo/resortslite/BookingService.java", "status": "fixed"},
+    {"id": "blocker-11", "ruleId": "cz-java-0070", "filePath": "src/main/java/com/demo/resortslite/BookingController.java", "status": "fixed"}
+  ]
+}
