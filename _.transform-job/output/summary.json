@@ -1,0 +1,114 @@
+{
+  "executiveSummary": {
+    "updatesCompleted": 6,
+    "updatesFailed": 2,
+    "filesModified": 4,
+    "successRate": 75,
+    "description": "Upgraded Spring Boot parent from 2.7.18 to 3.5.16 to enable Java 25 compatibility, updated java.version from 1.8 to 25, migrated javax.servlet to jakarta.servlet, and added explicit UTF-8 charsets to FileWriter and getBytes() calls. The project compiles successfully with mvn clean compile and mvn verify on Java 25."
+  },
+  "fixedUpdates": [
+    {
+      "title": "Upgrade Spring Boot parent from 2.7.18 to 3.5.16 for Java 25 compatibility",
+      "filePath": "pom.xml (Line 10)",
+      "severity": "Critical",
+      "category": "framework-compatibility",
+      "impact": "Spring Boot 2.7.18 uses Spring Framework 5.3 whose ASM class reader cannot parse Java 25 class files, causing 'Unsupported class file major version' errors at start-up. Spring Boot 3.5.16 is the compatible release for Java 25.",
+      "originalCode": "<version>2.7.18</version>",
+      "fixedCode": "<version>3.5.16</version>",
+      "issueIds": ["issue-1"]
+    },
+    {
+      "title": "Update java.version from 1.8 to 25 for Java 25 compilation",
+      "filePath": "pom.xml (Line 22)",
+      "severity": "High",
+      "category": "build-configuration",
+      "impact": "Spring Boot 3.5+ requires Java 17+ as a minimum. Setting java.version to 25 ensures the compiler targets Java 25 class files as required by the upgrade target.",
+      "originalCode": "<java.version>1.8</java.version>",
+      "fixedCode": "<java.version>25</java.version>",
+      "issueIds": ["issue-2"]
+    },
+    {
+      "title": "Migrate javax.servlet.http.HttpSession import to jakarta.servlet.http.HttpSession",
+      "filePath": "src/main/java/com/demo/resortslite/BookingController.java (Line 6)",
+      "severity": "High",
+      "category": "breaking-change",
+      "impact": "Spring Boot 3 brings Jakarta EE 9 where javax.* enterprise packages become jakarta.*. The javax.servlet import would not resolve, causing a compile error.",
+      "originalCode": "import javax.servlet.http.HttpSession;",
+      "fixedCode": "import jakarta.servlet.http.HttpSession;",
+      "issueIds": ["issue-3"]
+    },
+    {
+      "title": "Add explicit UTF-8 charset to FileWriter to preserve encoding behavior on Java 18+",
+      "filePath": "src/main/java/com/demo/resortslite/ReportService.java (Line 42)",
+      "severity": "Medium",
+      "category": "charset",
+      "impact": "Since Java 18 (JEP 400), the default charset is UTF-8. Adding an explicit StandardCharsets.UTF_8 preserves the intended UTF-8 encoding behavior and makes it explicit rather than relying on the platform default change.",
+      "originalCode": "FileWriter writer = new FileWriter(fullPath);",
+      "fixedCode": "FileWriter writer = new FileWriter(fullPath, StandardCharsets.UTF_8);",
+      "issueIds": ["issue-4"]
+    },
+    {
+      "title": "Add explicit UTF-8 charset to String.getBytes() in MD5 hash computation",
+      "filePath": "src/main/java/com/demo/resortslite/BookingService.java (Line 109)",
+      "severity": "Medium",
+      "category": "charset",
+      "impact": "Since Java 18 (JEP 400), String.getBytes() without a charset uses UTF-8 instead of the platform default. Adding an explicit StandardCharsets.UTF_8 makes the encoding deterministic and preserves the intended UTF-8 behavior.",
+      "originalCode": "byte[] hash = md.digest(input.getBytes());",
+      "fixedCode": "byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));",
+      "issueIds": ["issue-5"]
+    },
+    {
+      "title": "Add java.nio.charset.StandardCharsets import to ReportService.java",
+      "filePath": "src/main/java/com/demo/resortslite/ReportService.java (Line 7)",
+      "severity": "Low",
+      "category": "build-configuration",
+      "impact": "Required import for the StandardCharsets.UTF_8 constant used in the FileWriter fix.",
+      "originalCode": "import java.io.File;\nimport java.io.FileWriter;\nimport java.io.IOException;\nimport java.text.SimpleDateFormat;",
+      "fixedCode": "import java.io.File;\nimport java.io.FileWriter;\nimport java.io.IOException;\nimport java.nio.charset.StandardCharsets;\nimport java.text.SimpleDateFormat;",
+      "issueIds": ["issue-4"]
+    }
+  ],
+  "failedUpdates": [
+    {
+      "title": "Upgrade log4j-core from 2.14.1 to 2.23+ for CVE-2021-44228 and Java 25 compatibility",
+      "filePath": "pom.xml (Line 35)",
+      "severity": "Medium",
+      "category": "dependency-upgrade",
+      "failureReason": "Not needed: the build compiles successfully with log4j-core 2.14.1 on Java 25. The analysis lists this as an upgradeable dependency for CVE and potential Java 17+ reflection concerns, but it does not break the build. No runtime test was run (application not started per job constraints), so the potential reflection issue cannot be confirmed as a build failure.",
+      "suggestedApproach": "Upgrade log4j-core to 2.23.x or later to address CVE-2021-44228 (Log4Shell) and ensure full Java 25 compatibility. This should be done as a separate security-focused task.",
+      "issueIds": []
+    },
+    {
+      "title": "Upgrade commons-collections from 3.2.1 to 4.4 for CVE-2015-6420 and Java 25 compatibility",
+      "filePath": "pom.xml (Line 41)",
+      "severity": "Medium",
+      "category": "dependency-upgrade",
+      "failureReason": "Not needed: the build compiles successfully with commons-collections 3.2.1 on Java 25. The analysis lists this as an upgradeable dependency for CVE and potential Java 25 compatibility concerns, but it does not break the build.",
+      "suggestedApproach": "Upgrade commons-collections to 4.4 to address CVE-2015-6420 (RCE via deserialization) and ensure Java 25 compatibility. This should be done as a separate security-focused task.",
+      "issueIds": []
+    }
+  ],
+  "applicationInfo": {
+    "applicationName": "ResortsLite-mupgrade",
+    "applicationOwner": "",
+    "metadata": {
+      "techStack": ["Java"],
+      "components": 1,
+      "currentVersion": "Java 1.8",
+      "targetVersion": "Java 25"
+    }
+  },
+  "reportMetadata": {
+    "reportType": "Post-Transformation Report: M-Upgrade",
+    "description": "Upgraded ResortsLite from Java 1.8/Spring Boot 2.7.18 to Java 25/Spring Boot 3.5.16. Fixed javax to jakarta migration, Java version, and charset encoding issues. Build compiles successfully.",
+    "status": "Completed",
+    "start": "2026-11-09",
+    "end": "2026-11-09"
+  },
+  "postTransformationGuidelines": [
+    "Spring Boot 3.5.16 brings Jakarta EE 9 (javax.* to jakarta.* namespace migration), Spring Security 6, Hibernate 6, and Tomcat 10. The javax.servlet.http.HttpSession import was migrated to jakarta.servlet.http.HttpSession as part of this required migration.",
+    "The application uses H2 in-memory database (already configured in application.properties and pom.xml) — no stand-in database was added. The database settings remain unchanged.",
+    "log4j-core (2.14.1) and commons-collections (3.2.1) were not upgraded as they do not break the build on Java 25. They are flagged as security concerns (CVE-2021-44228 and CVE-2015-6420) and should be upgraded in a separate security-focused task.",
+    "No tests exist in the project, so no test framework migration was needed."
+  ]
+}
