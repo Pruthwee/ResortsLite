@@ -1,9 +1,11 @@
 package com.demo.resortslite;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpSession;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,9 +16,10 @@ public class BookingController {
     @Autowired
     private BookingService bookingService;
 
-    // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
-    // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    private static final int CACHE_TTL_SECONDS = 3600; // 1 hour TTL
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -34,7 +37,15 @@ public class BookingController {
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        try {
+            redisTemplate.opsForValue().set(
+                    "booking:" + booking.get("bookingId"),
+                    booking,
+                    Duration.ofSeconds(CACHE_TTL_SECONDS)
+            );
+        } catch (Exception e) {
+            // Cache operation failed, continue without caching (old behavior)
+        }
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
