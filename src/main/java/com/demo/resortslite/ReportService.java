@@ -5,9 +5,11 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -39,7 +41,7 @@ public class ReportService {
                 reportDir.mkdirs();
             }
 
-            FileWriter writer = new FileWriter(fullPath);
+            FileWriter writer = new FileWriter(fullPath, StandardCharsets.UTF_8);
             writer.write("BookingID,GuestName,RoomType,CheckIn,CheckOut,Amount\n");
             writer.write("BK-001,John Smith,SUITE,2024-03-01,2024-03-05,1750.00\n");
             writer.write("BK-002,Jane Doe,DELUXE,2024-03-03,2024-03-07,960.00\n");
@@ -67,7 +69,7 @@ public class ReportService {
     }
 
     public Map<String, Object> getSystemInfo() { // doc-missing-001
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new Date());
         Map<String, Object> info = new HashMap<>();
         info.put("reportPath", REPORT_BASE_PATH);  // czr-java-001
         info.put("backupPath", BACKUP_PATH);        // czr-java-001
