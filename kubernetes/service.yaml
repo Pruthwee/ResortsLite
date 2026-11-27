@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: resortlite-mono2-service
+  namespace: resortlite-mono2
+  labels:
+    app: resortlite-mono2
+spec:
+  type: ClusterIP
+  selector:
+    app: resortlite-mono2
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080

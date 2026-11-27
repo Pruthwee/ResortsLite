@@ -16,7 +16,7 @@ public class BookingController {
 
     // VIOLATION cr-java-0067 [Cloud Compatibility / Mandatory]: In-memory cache without TTL
     // breaks horizontal scaling — cache is instance-local, invisible to other EC2 instances
-    private static final Map<String, Object> bookingCache = new HashMap<>(); // cr-java-0067
+    @Autowired private org.springframework.cache.CacheManager bookingCache; // cr-java-0067: Redis-backed shared cache (spring.cache.type=redis)
 
     @PostMapping("/create")
     public Map<String, Object> createBooking(
@@ -34,7 +34,7 @@ public class BookingController {
         session.setAttribute("lastBooking", booking); // cr-java-0065
         session.setAttribute("guestName", guestName); // cr-java-0065
 
-        bookingCache.put((String) booking.get("bookingId"), booking);
+        bookingCache.getCache("bookings").put((String) booking.get("bookingId"), booking);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "confirmed");
@@ -77,7 +77,7 @@ public class BookingController {
         // VIOLATION czr-java-001 [Software Portability / Mandatory]: Hardcoded absolute
         // file path. This path does not exist inside a container image. Container images
         // have their own isolated file systems — /var/legacy/reports won't be present.
-        String reportPath = "/var/legacy/reports/" + month + "_bookings.pdf"; // czr-java-001
+        String reportPath = System.getenv().getOrDefault("REPORT_PATH", "/app/reports").replaceAll("/+$", "") + "/" + month + "_bookings.pdf"; // czr-java-001
 
         Map<String, Object> response = new HashMap<>();
         response.put("reportPath", reportPath);
